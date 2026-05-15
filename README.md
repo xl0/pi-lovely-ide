@@ -2,7 +2,7 @@
 
 Pi package template for an IDE integration extension.
 
-https://github.com/xl0/pi-ide-integration/releases/download/demo/demo.mp4
+[![Demo](./demo.gif)](https://github.com/xl0/pi-ide-integration/releases/download/demo/demo.mp4)
 
 ## Install
 
