@@ -46,6 +46,7 @@ interface AtMention {
 const IDE_LOCK_DIR = join(homedir(), ".claude", "ide")
 const STATUS_KEY = "ide-integration"
 const CONNECT_TIMEOUT_MS = 10_000
+const RECONNECT_DELAY_MS = 1_000
 
 export default function ideIntegrationExtension(pi: ExtensionAPI) {
 	let currentCtx: ExtensionContext | null = null
@@ -54,6 +55,8 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 	let currentSelection: IdeSelection | null = null
 	let nextRequestId = 1
 	let connectRun = 0
+	let autoReconnect = true
+	let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
 	function isPidAlive(pid: number | undefined): boolean {
 		if (!pid || !Number.isInteger(pid)) return false
@@ -160,15 +163,16 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 		})
 	}
 
-	function describeSelection(): string {
-		if (!currentSelection?.filePath) return "selection: none"
+	function describeSelection(): string | undefined {
+		if (!currentSelection?.filePath) return undefined
 
 		const start = currentSelection.selection?.start
 		const end = currentSelection.selection?.end
 		const startLine = typeof start?.line === "number" ? start.line + 1 : "?"
 		const endLine = typeof end?.line === "number" ? end.line + 1 : "?"
 		const path = displayPath(currentSelection.filePath)
-		return `selection: ${path} L${startLine}-L${endLine}`
+		const lineRange = startLine === endLine ? String(startLine) : `${startLine}-${endLine}`
+		return `${path}#${lineRange}`
 	}
 
 	function displayPath(path: string): string {
@@ -188,14 +192,22 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 
 		const ide = connected.lock.ideName ?? "IDE"
 		const pid = connected.lock.pid ?? "?"
-		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} pid:${pid} ${describeSelection()}`)
+		const selection = describeSelection()
+		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} ${pid}${selection ? ` ${selection}` : ""}`)
+	}
+
+	function describeIde(ide: DiscoveredIde, index: number): string {
+		const name = ide.lock.ideName ?? "IDE"
+		const pid = ide.lock.pid ?? "?"
+		const current = connected?.port === ide.port ? " current" : ""
+		return `${index + 1}. ${name} ${pid} port:${ide.port}${current}`
 	}
 
 	function mentionText(mention: AtMention): string | undefined {
 		if (!mention.filePath) return undefined
 		let ref = `@${displayPath(mention.filePath)}`
 		if (typeof mention.lineStart === "number" && typeof mention.lineEnd === "number") {
-			const range = mention.lineStart === mention.lineEnd ? `L${mention.lineStart}` : `L${mention.lineStart}-L${mention.lineEnd}`
+			const range = mention.lineStart === mention.lineEnd ? String(mention.lineStart) : `${mention.lineStart}-${mention.lineEnd}`
 			ref += `#${range}`
 		}
 		return ref
@@ -204,7 +216,8 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 	function insertIntoEditor(text: string): void {
 		if (!currentCtx) return
 		const existing = currentCtx.ui.getEditorText()
-		currentCtx.ui.pasteToEditor(existing ? ` ${text}` : text)
+		const leading = existing === "" || !/\s$/.test(existing) ? " " : ""
+		currentCtx.ui.pasteToEditor(`${leading}${text} `)
 	}
 
 	function handleMessage(socket: WebSocket, event: MessageEvent): void {
@@ -236,6 +249,22 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 				updateStatus()
 			}
 		}
+	}
+
+	function clearReconnectTimer(): void {
+		if (reconnectTimer) {
+			clearTimeout(reconnectTimer)
+			reconnectTimer = undefined
+		}
+	}
+
+	function scheduleReconnect(): void {
+		if (!autoReconnect || reconnectTimer || !currentCtx) return
+		reconnectTimer = setTimeout(() => {
+			reconnectTimer = undefined
+			if (!autoReconnect || !currentCtx || ws) return
+			void reconnectMatching(currentCtx)
+		}, RECONNECT_DELAY_MS)
 	}
 
 	async function connectToIde(ide: DiscoveredIde, run: number): Promise<void> {
@@ -281,6 +310,7 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 			throw err
 		}
 
+		clearReconnectTimer()
 		ws = socket
 		connected = ide
 		currentSelection = null
@@ -292,18 +322,14 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 				connected = null
 				currentSelection = null
 				updateStatus()
+				scheduleReconnect()
 			}
 		})
 		updateStatus()
 	}
 
-	async function connectOnStartup(ctx: ExtensionContext): Promise<void> {
-		currentCtx = ctx
-		connectRun++
-		const run = connectRun
-		disconnect(false)
-		updateStatus()
-
+	async function reconnectMatching(ctx: ExtensionContext): Promise<void> {
+		const run = ++connectRun
 		const ides = await discoverMatchingIdes(ctx.cwd)
 		if (run !== connectRun) return
 		for (const ide of ides) {
@@ -315,10 +341,19 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 			}
 		}
 		updateStatus()
+		scheduleReconnect()
+	}
+
+	async function connectOnStartup(ctx: ExtensionContext): Promise<void> {
+		currentCtx = ctx
+		disconnect(false)
+		updateStatus()
+		await reconnectMatching(ctx)
 	}
 
 	function disconnect(invalidateRun = true): void {
 		if (invalidateRun) connectRun++
+		clearReconnectTimer()
 		const socket = ws
 		ws = null
 		connected = null
@@ -326,6 +361,39 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 		if (socket) socket.close()
 		updateStatus()
 	}
+
+	pi.registerCommand("ide", {
+		description: "Reconnect to a Claude Code IDE endpoint for this project",
+		handler: async (_args, ctx) => {
+			currentCtx = ctx
+			const ides = await discoverMatchingIdes(ctx.cwd)
+			const noneLabel = "None (disconnect)"
+			const labels = [noneLabel, ...ides.map(describeIde)]
+			const choice = await ctx.ui.select("Connect IDE", labels)
+			if (!choice) return
+
+			if (choice === noneLabel) {
+				autoReconnect = false
+				disconnect()
+				return
+			}
+
+			const index = labels.indexOf(choice) - 1
+			const ide = ides[index]
+			if (!ide) return
+
+			autoReconnect = true
+			const run = ++connectRun
+			disconnect(false)
+			try {
+				await connectToIde(ide, run)
+			} catch (err) {
+				updateStatus()
+				ctx.ui.notify(err instanceof Error ? err.message : String(err), "error")
+				scheduleReconnect()
+			}
+		}
+	})
 
 	pi.on("session_start", async (_event, ctx) => {
 		await connectOnStartup(ctx)

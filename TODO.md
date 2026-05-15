@@ -4,4 +4,6 @@
 - [x] Filter lock files to current project directory.
 - [x] Footer status for connection and current selection.
 - [x] Insert deliberate IDE `at_mentioned` references into current editor message.
-- [ ] Decide whether to reconnect automatically when IDE appears after Pi startup.
+- [x] Add `/ide` command for manual reconnect/switch among matching IDE endpoints.
+- [x] Automatically reconnect after lost IDE connections.
+- [ ] Decide whether to reconnect automatically when IDE appears after Pi startup before any successful connection.
