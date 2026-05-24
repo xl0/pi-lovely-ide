@@ -437,65 +437,62 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 
 			const result = await ctx.ui.custom<
 				{ action: "connect"; ide: DiscoveredIde } | { action: "toggle" } | { action: "disconnect" } | undefined
-			>(
-				(tui, theme, _kb, done) => {
-					const container = new Container()
+			>((tui, theme, _kb, done) => {
+				const container = new Container()
 
-					container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)))
-					container.addChild(new Text(theme.fg("accent", theme.bold("IDE Connection")), 1, 0))
+				container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)))
+				container.addChild(new Text(theme.fg("accent", theme.bold("IDE Connection")), 1, 0))
 
-					const selectList = new SelectList(items, Math.min(items.length, 12), {
-						selectedPrefix: (t: string) => theme.fg("accent", t),
-						selectedText: (t: string) => theme.fg("accent", t),
-						description: (t: string) => theme.fg("muted", t),
-						scrollInfo: (t: string) => theme.fg("dim", t),
-						noMatch: (t: string) => theme.fg("warning", t)
-					})
-					selectList.setSelectedIndex(initialIndex)
+				const selectList = new SelectList(items, Math.min(items.length, 12), {
+					selectedPrefix: (t: string) => theme.fg("accent", t),
+					selectedText: (t: string) => theme.fg("accent", t),
+					description: (t: string) => theme.fg("muted", t),
+					scrollInfo: (t: string) => theme.fg("dim", t),
+					noMatch: (t: string) => theme.fg("warning", t)
+				})
+				selectList.setSelectedIndex(initialIndex)
 
-					selectList.onSelect = item => {
-						if (item.value === "Disconnect") {
-							done({ action: "disconnect" })
-						} else if (isToggleItem(item.value)) {
-							done({ action: "toggle" })
-						} else {
-							const ide = ides.find(i => i.port.toString() === item.value)
-							if (ide) done({ action: "connect", ide })
-						}
+				selectList.onSelect = item => {
+					if (item.value === "Disconnect") {
+						done({ action: "disconnect" })
+					} else if (isToggleItem(item.value)) {
+						done({ action: "toggle" })
+					} else {
+						const ide = ides.find(i => i.port.toString() === item.value)
+						if (ide) done({ action: "connect", ide })
 					}
+				}
 
-					selectList.onCancel = () => {
-						done(undefined)
-					}
+				selectList.onCancel = () => {
+					done(undefined)
+				}
 
-					container.addChild(selectList)
-					container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter select • space toggle • esc cancel"), 1, 0))
-					container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)))
+				container.addChild(selectList)
+				container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter select • space toggle • esc cancel"), 1, 0))
+				container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)))
 
-					return {
-						render: (w: number) => container.render(w),
-						invalidate: () => container.invalidate(),
-						handleInput: (data: string) => {
-							if (matchesKey(data, "space")) {
-								const sel = selectList.getSelectedItem()
-								if (sel && isToggleItem(sel.value)) {
-									if (sel.value === "autoConnectOnStartup") autoConnectOnStartup = !autoConnectOnStartup
-									else if (sel.value === "autoReconnect") autoReconnect = !autoReconnect
-									void saveConfig()
-									const idx = items.findIndex(i => i.value === sel.value)
-									if (idx !== -1) items[idx] = { value: sel.value, label: labelForToggle(sel.value) }
-									selectList.invalidate()
-									tui.requestRender()
-								}
-								return
+				return {
+					render: (w: number) => container.render(w),
+					invalidate: () => container.invalidate(),
+					handleInput: (data: string) => {
+						if (matchesKey(data, "space")) {
+							const sel = selectList.getSelectedItem()
+							if (sel && isToggleItem(sel.value)) {
+								if (sel.value === "autoConnectOnStartup") autoConnectOnStartup = !autoConnectOnStartup
+								else if (sel.value === "autoReconnect") autoReconnect = !autoReconnect
+								void saveConfig()
+								const idx = items.findIndex(i => i.value === sel.value)
+								if (idx !== -1) items[idx] = { value: sel.value, label: labelForToggle(sel.value) }
+								selectList.invalidate()
+								tui.requestRender()
 							}
-							selectList.handleInput(data)
-							tui.requestRender()
+							return
 						}
+						selectList.handleInput(data)
+						tui.requestRender()
 					}
-				},
-				// { overlay: true }
-			)
+				}
+			})
 
 			if (!result) return
 
