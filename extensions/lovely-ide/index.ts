@@ -46,7 +46,7 @@ interface AtMention {
 }
 
 const IDE_LOCK_DIR = join(homedir(), ".claude", "ide")
-const STATUS_KEY = "ide-integration"
+const STATUS_KEY = "lovely-ide"
 const CONNECT_TIMEOUT_MS = 10_000
 const RECONNECT_DELAY_MS = 1_000
 
@@ -55,7 +55,7 @@ interface IdeConfig {
 	autoReconnect?: boolean
 }
 
-export default function ideIntegrationExtension(pi: ExtensionAPI) {
+export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let currentCtx: ExtensionContext | null = null
 	let ws: WebSocket | null = null
 	let connected: DiscoveredIde | null = null
@@ -198,7 +198,7 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 				params: {
 					protocolVersion: "2025-03-26",
 					capabilities: {},
-					clientInfo: { name: "pi-ide-integration", version: "0.1.0" }
+					clientInfo: { name: "lovely-ide", version: "0.1.0" }
 				}
 			})
 		})

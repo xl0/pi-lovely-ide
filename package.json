@@ -1,5 +1,5 @@
 {
-	"name": "@xl0/pi-ide-integration",
+	"name": "@xl0/pi-lovely-ide",
 	"version": "0.1.1",
 	"keywords": [
 		"pi-package",
@@ -9,10 +9,10 @@
 	],
 	"type": "module",
 	"license": "MIT",
-	"homepage": "https://github.com/xl0/pi-ide-integration#readme",
+	"homepage": "https://github.com/xl0/pi-lovely-ide#readme",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/xl0/pi-ide-integration.git"
+		"url": "git+https://github.com/xl0/pi-lovely-ide.git"
 	},
 	"files": [
 		"extensions/",

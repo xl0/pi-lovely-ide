@@ -1,19 +1,19 @@
-# ide-integration
+# lovely-ide
 
-Pi package template for an IDE integration extension.
+Pi package for the Lovely IDE integration extension.
 
-[![Demo](./demo.gif)](https://github.com/xl0/pi-ide-integration/releases/download/demo/demo.mp4)
+[![Demo](./demo.gif)](https://github.com/xl0/pi-lovely-ide/releases/download/demo/demo.mp4)
 
 ## Install
 
 ```bash
-pi install npm:@xl0/pi-ide-integration
+pi install npm:@xl0/pi-lovely-ide
 ```
 
 Or load without installing:
 
 ```bash
-pi -e npm:@xl0/pi-ide-integration
+pi -e npm:@xl0/pi-lovely-ide
 ```
 
 ## Local development
@@ -27,4 +27,4 @@ pi -e .
 ## Structure
 
 - `package.json` — npm and Pi package manifest
-- `extensions/ide-integration/index.ts` — extension entry point
+- `extensions/lovely-ide/index.ts` — extension entry point
