@@ -215,9 +215,7 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 
 	function insertIntoEditor(text: string): void {
 		if (!currentCtx) return
-		const existing = currentCtx.ui.getEditorText()
-		const leading = existing === "" || !/\s$/.test(existing) ? " " : ""
-		currentCtx.ui.pasteToEditor(`${leading}${text} `)
+		currentCtx.ui.pasteToEditor(`${text} `)
 	}
 
 	function handleMessage(socket: WebSocket, event: MessageEvent): void {
