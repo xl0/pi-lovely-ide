@@ -1,8 +1,11 @@
 {
 	"name": "@xl0/pi-ide-integration",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"keywords": [
-		"pi-package", "vscode", "claude code", "neovim"
+		"pi-package",
+		"vscode",
+		"claude code",
+		"neovim"
 	],
 	"type": "module",
 	"license": "MIT",

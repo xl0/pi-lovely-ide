@@ -1,8 +1,10 @@
-import { readdir, readFile, realpath } from "node:fs/promises"
+import { mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
+import { DynamicBorder } from "@earendil-works/pi-coding-agent"
+import { Container, matchesKey, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui"
 
 interface IdeLockFile {
 	pid?: number
@@ -48,6 +50,11 @@ const STATUS_KEY = "ide-integration"
 const CONNECT_TIMEOUT_MS = 10_000
 const RECONNECT_DELAY_MS = 1_000
 
+interface IdeConfig {
+	autoConnectOnStartup?: boolean
+	autoReconnect?: boolean
+}
+
 export default function ideIntegrationExtension(pi: ExtensionAPI) {
 	let currentCtx: ExtensionContext | null = null
 	let ws: WebSocket | null = null
@@ -55,8 +62,42 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 	let currentSelection: IdeSelection | null = null
 	let nextRequestId = 1
 	let connectRun = 0
+	let projectDir: string | null = null
+	let autoConnectOnStartup = true
 	let autoReconnect = true
 	let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+
+	function configPath(): string {
+		// biome-ignore lint/style/noNonNullAssertion: projectDir is set on session_start before any access.
+		return join(projectDir!, ".pi", "xl0-lovely-ide.json")
+	}
+
+	async function loadConfig(): Promise<void> {
+		if (!projectDir) return
+		try {
+			const raw = await readFile(configPath(), "utf8")
+			const cfg = JSON.parse(raw) as IdeConfig
+			if (typeof cfg.autoConnectOnStartup === "boolean") autoConnectOnStartup = cfg.autoConnectOnStartup
+			if (typeof cfg.autoReconnect === "boolean") autoReconnect = cfg.autoReconnect
+		} catch {
+			// No config yet — use defaults.
+		}
+	}
+
+	async function saveConfig(): Promise<void> {
+		if (!projectDir) return
+		const path = configPath()
+		try {
+			await mkdir(join(projectDir, ".pi"), { recursive: true })
+		} catch {
+			return
+		}
+		try {
+			await writeFile(path, `${JSON.stringify({ autoConnectOnStartup, autoReconnect }, null, "\t")}\n`, "utf8")
+		} catch {
+			// Best effort.
+		}
+	}
 
 	function isPidAlive(pid: number | undefined): boolean {
 		if (!pid || !Number.isInteger(pid)) return false
@@ -186,7 +227,11 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 		if (!currentCtx) return
 		const th = currentCtx.ui.theme
 		if (!connected) {
-			currentCtx.ui.setStatus(STATUS_KEY, th.fg("error", "○ IDE disconnected"))
+			if (!autoConnectOnStartup && !autoReconnect) {
+				currentCtx.ui.setStatus(STATUS_KEY, th.fg("muted", "○ IDE disabled"))
+			} else {
+				currentCtx.ui.setStatus(STATUS_KEY, th.fg("error", "○ IDE disconnected"))
+			}
 			return
 		}
 
@@ -194,13 +239,6 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 		const pid = connected.lock.pid ?? "?"
 		const selection = describeSelection()
 		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} ${pid}${selection ? ` ${selection}` : ""}`)
-	}
-
-	function describeIde(ide: DiscoveredIde, index: number): string {
-		const name = ide.lock.ideName ?? "IDE"
-		const pid = ide.lock.pid ?? "?"
-		const current = connected?.port === ide.port ? " current" : ""
-		return `${index + 1}. ${name} ${pid} port:${ide.port}${current}`
 	}
 
 	function mentionText(mention: AtMention): string | undefined {
@@ -361,40 +399,128 @@ export default function ideIntegrationExtension(pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("ide", {
-		description: "Reconnect to a Claude Code IDE endpoint for this project",
+		description: "Connect to an IDE, toggle auto-connect/reconnect",
 		handler: async (_args, ctx) => {
 			currentCtx = ctx
 			const ides = await discoverMatchingIdes(ctx.cwd)
-			const noneLabel = "None (disconnect)"
-			const labels = [noneLabel, ...ides.map(describeIde)]
-			const choice = await ctx.ui.select("Connect IDE", labels)
-			if (!choice) return
 
-			if (choice === noneLabel) {
-				autoReconnect = false
-				disconnect()
-				return
+			type ToggleItem = "autoConnectOnStartup" | "autoReconnect"
+
+			function labelForToggle(key: ToggleItem): string {
+				const val = key === "autoConnectOnStartup" ? autoConnectOnStartup : autoReconnect
+				const label = key === "autoConnectOnStartup" ? "Auto-connect on startup" : "Auto-reconnect on loss"
+				return `${label}  ${val ? "on" : "off"}`
 			}
 
-			const index = labels.indexOf(choice) - 1
-			const ide = ides[index]
-			if (!ide) return
+			const toggleItems = new Set<ToggleItem>(["autoConnectOnStartup", "autoReconnect"])
+			function isToggleItem(value: string): value is ToggleItem {
+				return toggleItems.has(value as ToggleItem)
+			}
 
-			autoReconnect = true
-			const run = ++connectRun
-			disconnect(false)
-			try {
-				await connectToIde(ide, run)
-			} catch (err) {
-				updateStatus()
-				ctx.ui.notify(err instanceof Error ? err.message : String(err), "error")
-				scheduleReconnect()
+			const items: SelectItem[] = [
+				...ides.map((ide): SelectItem => {
+					const name = ide.lock.ideName ?? "IDE"
+					const pid = ide.lock.pid ?? "?"
+					const cur = connected?.port === ide.port ? " (current)" : ""
+					return { value: ide.port.toString(), label: `${name} ${pid}${cur}` }
+				}),
+				{ value: "Disconnect", label: "Disconnect" },
+				{ value: "autoConnectOnStartup", label: labelForToggle("autoConnectOnStartup") },
+				{ value: "autoReconnect", label: labelForToggle("autoReconnect") }
+			]
+
+			let initialIndex = items.length - 1
+			if (connected) {
+				const idx = items.findIndex(i => i.value === connected?.port.toString())
+				if (idx !== -1) initialIndex = idx
+			}
+
+			const result = await ctx.ui.custom<
+				{ action: "connect"; ide: DiscoveredIde } | { action: "toggle" } | { action: "disconnect" } | undefined
+			>(
+				(tui, theme, _kb, done) => {
+					const container = new Container()
+
+					container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)))
+					container.addChild(new Text(theme.fg("accent", theme.bold("IDE Connection")), 1, 0))
+
+					const selectList = new SelectList(items, Math.min(items.length, 12), {
+						selectedPrefix: (t: string) => theme.fg("accent", t),
+						selectedText: (t: string) => theme.fg("accent", t),
+						description: (t: string) => theme.fg("muted", t),
+						scrollInfo: (t: string) => theme.fg("dim", t),
+						noMatch: (t: string) => theme.fg("warning", t)
+					})
+					selectList.setSelectedIndex(initialIndex)
+
+					selectList.onSelect = item => {
+						if (item.value === "Disconnect") {
+							done({ action: "disconnect" })
+						} else if (isToggleItem(item.value)) {
+							done({ action: "toggle" })
+						} else {
+							const ide = ides.find(i => i.port.toString() === item.value)
+							if (ide) done({ action: "connect", ide })
+						}
+					}
+
+					selectList.onCancel = () => {
+						done(undefined)
+					}
+
+					container.addChild(selectList)
+					container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter select • space toggle • esc cancel"), 1, 0))
+					container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)))
+
+					return {
+						render: (w: number) => container.render(w),
+						invalidate: () => container.invalidate(),
+						handleInput: (data: string) => {
+							if (matchesKey(data, "space")) {
+								const sel = selectList.getSelectedItem()
+								if (sel && isToggleItem(sel.value)) {
+									if (sel.value === "autoConnectOnStartup") autoConnectOnStartup = !autoConnectOnStartup
+									else if (sel.value === "autoReconnect") autoReconnect = !autoReconnect
+									void saveConfig()
+									const idx = items.findIndex(i => i.value === sel.value)
+									if (idx !== -1) items[idx] = { value: sel.value, label: labelForToggle(sel.value) }
+									selectList.invalidate()
+									tui.requestRender()
+								}
+								return
+							}
+							selectList.handleInput(data)
+							tui.requestRender()
+						}
+					}
+				},
+				// { overlay: true }
+			)
+
+			if (!result) return
+
+			if (result.action === "disconnect") {
+				disconnect()
+			} else if (result.action === "toggle") {
+				void saveConfig()
+			} else if (result.action === "connect") {
+				const run = ++connectRun
+				disconnect(false)
+				try {
+					await connectToIde(result.ide, run)
+				} catch (err) {
+					updateStatus()
+					ctx.ui.notify(err instanceof Error ? err.message : String(err), "error")
+					scheduleReconnect()
+				}
 			}
 		}
 	})
 
 	pi.on("session_start", async (_event, ctx) => {
-		await connectOnStartup(ctx)
+		projectDir = ctx.cwd
+		await loadConfig()
+		if (autoConnectOnStartup) await connectOnStartup(ctx)
 	})
 
 	pi.on("session_shutdown", () => {
