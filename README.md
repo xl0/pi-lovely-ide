@@ -2,6 +2,12 @@
 
 Pi package for the Lovely IDE integration extension.
 
+## How it works
+
+
+
+
+
 [![Demo](./demo.gif)](https://github.com/xl0/pi-lovely-ide/releases/download/demo/demo.mp4)
 
 ## Install
@@ -23,8 +29,3 @@ bun install
 bun run check
 pi -e .
 ```
-
-## Structure
-
-- `package.json` — npm and Pi package manifest
-- `extensions/lovely-ide/index.ts` — extension entry point

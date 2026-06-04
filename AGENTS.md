@@ -3,9 +3,9 @@
 Maintain 2 important files in sync with the codebase:
 
 - `CODE.md`: An in-depth summary of the current state of the codebase.
-- `TODO.md`: Contains both high-level birds eye plan, as well as a lower-level todo list. Use [x] boxes to mark items.
+- `PLAN.md`: Contains both high-level birds eye plan, as well as a lower-level todo list. Use [x] boxes to mark items.
 
-IMPORTANT: At the start of each conversation, always fully read `CODE.md`. You may read `TODO.md` when relevant to the task.
+IMPORTANT: At the start of each conversation, always fully read `CODE.md`. You may read `PLAN.md` when relevant to the task.
 Update the files as you go, keep the updates concise. Not a changelog - content reflects the current state, not history.
 
 # Guidelines
@@ -44,60 +44,29 @@ Update the files as you go, keep the updates concise. Not a changelog - content 
 
 ### Git
 
+- Only commit when directly instructed. 
 - When you commit, it's possible that the worktree contains unrelated changes and untracked files. Don't blindly add files - only commit what's necessary.
 - **NEVER** use destructive commands like `git reset --hard` or `git checkout --` unless specifically requested or approved by the user.
-## Think Before Coding
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+## Communication style
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+Respond terse like smart caveman. All technical substance stay. Only fluff die.
 
-## 2. Simplicity First
+Drop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging. Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for"). Abbreviate common terms (DB/auth/config/req/res/fn/impl). Strip conjunctions. Use arrows for causality (X -> Y). One word when one word enough.
 
-**Minimum code that solves the problem. Nothing speculative.**
+Technical terms stay exact. Code blocks unchanged. Errors quoted exact.
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+Pattern: `[thing] [action] [reason]. [next step].`
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+Not: "Sure! I'd be happy to help you with that. The issue you're experiencing is likely caused by..."
+Yes: "Bug in auth middleware. Token expiry check use `<` not `<=`. Fix:"
 
-## 3. Surgical Changes
+### Examples
 
-**Touch only what you must. Clean up only your own mess.**
+**"Why React component re-render?"**
 
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
+> Inline obj prop -> new ref -> re-render. `useMemo`.
 
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
+**"Explain database connection pooling."**
 
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+> Pool = reuse DB conn. Skip handshake -> fast under load.
