@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer"
 import { mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join, relative } from "node:path"
@@ -36,7 +37,14 @@ interface IdeSelection {
 		start?: { line?: number; character?: number }
 		end?: { line?: number; character?: number }
 		isEmpty?: boolean
-	}
+	} | null
+}
+
+interface SelectionSnapshot {
+	filePath: string
+	lineStart: number
+	lineEnd: number
+	text?: string
 }
 
 interface AtMention {
@@ -49,10 +57,12 @@ const IDE_LOCK_DIR = join(homedir(), ".claude", "ide")
 const STATUS_KEY = "lovely-ide"
 const CONNECT_TIMEOUT_MS = 10_000
 const RECONNECT_DELAY_MS = 1_000
+const MAX_SELECTED_TEXT_BYTES = 2 * 1024
 
 interface IdeConfig {
 	autoConnectOnStartup?: boolean
 	autoReconnect?: boolean
+	selectionContext?: boolean
 }
 
 export default function lovelyIdeExtension(pi: ExtensionAPI) {
@@ -65,6 +75,11 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let projectDir: string | null = null
 	let autoConnectOnStartup = true
 	let autoReconnect = true
+	let selectionContextEnabled = true
+	let pendingSelectionSnapshot: SelectionSnapshot | null | undefined
+	let activeSelectionSnapshot: SelectionSnapshot | null = null
+	let activeSelectionUserTimestamp: number | undefined
+	let awaitingSelectionUserMessage = false
 	let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
 	function configPath(): string {
@@ -79,6 +94,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 			const cfg = JSON.parse(raw) as IdeConfig
 			if (typeof cfg.autoConnectOnStartup === "boolean") autoConnectOnStartup = cfg.autoConnectOnStartup
 			if (typeof cfg.autoReconnect === "boolean") autoReconnect = cfg.autoReconnect
+			if (typeof cfg.selectionContext === "boolean") selectionContextEnabled = cfg.selectionContext
 		} catch {
 			// No config yet — use defaults.
 		}
@@ -93,7 +109,11 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 			return
 		}
 		try {
-			await writeFile(path, `${JSON.stringify({ autoConnectOnStartup, autoReconnect }, null, "\t")}\n`, "utf8")
+			await writeFile(
+				path,
+				`${JSON.stringify({ autoConnectOnStartup, autoReconnect, selectionContext: selectionContextEnabled }, null, "\t")}\n`,
+				"utf8"
+			)
 		} catch {
 			// Best effort.
 		}
@@ -204,16 +224,66 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		})
 	}
 
+	function selectionLineRange(selection: IdeSelection): { lineStart: number; lineEnd: number; lineCount: number } | undefined {
+		const startLine = selection.selection?.start?.line
+		const endLine = selection.selection?.end?.line
+		const endCharacter = selection.selection?.end?.character
+		if (typeof startLine !== "number" || typeof endLine !== "number") return undefined
+		if (!Number.isInteger(startLine) || !Number.isInteger(endLine)) return undefined
+		if (startLine < 0 || endLine < 0) return undefined
+
+		const endLineZeroBased = endLine - (endCharacter === 0 ? 1 : 0)
+		const lineStart = startLine + 1
+		const lineEnd = endLineZeroBased + 1
+		if (lineEnd < lineStart) return undefined
+		return { lineStart, lineEnd, lineCount: lineEnd - lineStart + 1 }
+	}
+
+	function isActiveSelection(selection: IdeSelection | undefined): selection is IdeSelection & { filePath: string } {
+		return !!selection?.filePath && selection.selection?.isEmpty !== true && selectionLineRange(selection) !== undefined
+	}
+
+	function lineRangeText(lineStart: number, lineEnd: number): string {
+		return lineStart === lineEnd ? String(lineStart) : `${lineStart}-${lineEnd}`
+	}
+
+	function snapshotSelection(): SelectionSnapshot | null {
+		if (!currentSelection?.filePath) return null
+		const range = selectionLineRange(currentSelection)
+		if (!range) return null
+
+		const snapshot: SelectionSnapshot = {
+			filePath: currentSelection.filePath,
+			lineStart: range.lineStart,
+			lineEnd: range.lineEnd
+		}
+		if (
+			range.lineCount <= 2 &&
+			typeof currentSelection.text === "string" &&
+			currentSelection.text.length > 0 &&
+			Buffer.byteLength(currentSelection.text, "utf8") <= MAX_SELECTED_TEXT_BYTES
+		) {
+			snapshot.text = currentSelection.text
+		}
+		return snapshot
+	}
+
+	function formatSelectionContext(snapshot: SelectionSnapshot): string {
+		const file = displayPath(snapshot.filePath)
+		const lines = lineRangeText(snapshot.lineStart, snapshot.lineEnd)
+		if (snapshot.text !== undefined) {
+			return `<ide file="${file}" lines="${lines}">\n<selected>\n${snapshot.text}\n</selected>\n</ide>`
+		}
+		return `<ide file="${file}" lines="${lines}"></ide>`
+	}
+
 	function describeSelection(): string | undefined {
 		if (!currentSelection?.filePath) return undefined
 
-		const start = currentSelection.selection?.start
-		const end = currentSelection.selection?.end
-		const startLine = typeof start?.line === "number" ? start.line + 1 : "?"
-		const endLine = typeof end?.line === "number" ? end.line + 1 : "?"
+		const range = selectionLineRange(currentSelection)
+		if (!range) return undefined
 		const path = displayPath(currentSelection.filePath)
-		const lineRange = startLine === endLine ? String(startLine) : `${startLine}-${endLine}`
-		return `${path}#${lineRange}`
+		return `${path}#${lineRangeText(range.lineStart, range.lineEnd)}`
 	}
 
 	function displayPath(path: string): string {
@@ -237,7 +307,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 		const ide = connected.lock.ideName ?? "IDE"
 		const pid = connected.lock.pid ?? "?"
-		const selection = describeSelection()
+		const selection = selectionContextEnabled ? describeSelection() : undefined
 		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} ${pid}${selection ? ` ${selection}` : ""}`)
 	}
 
@@ -245,8 +315,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		if (!mention.filePath) return undefined
 		let ref = `@${displayPath(mention.filePath)}`
 		if (typeof mention.lineStart === "number" && typeof mention.lineEnd === "number") {
-			const range = mention.lineStart === mention.lineEnd ? String(mention.lineStart) : `${mention.lineStart}-${mention.lineEnd}`
-			ref += `#${range}`
+			ref += `#${lineRangeText(mention.lineStart + 1, mention.lineEnd + 1)}`
 		}
 		return ref
 	}
@@ -273,7 +342,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 		if (msg.method === "selection_changed") {
 			const selection = msg.params as IdeSelection | undefined
-			currentSelection = selection?.filePath && !selection.selection?.isEmpty ? selection : null
+			currentSelection = isActiveSelection(selection) ? selection : null
 			updateStatus()
 			return
 		}
@@ -399,20 +468,30 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("ide", {
-		description: "Connect to an IDE, toggle auto-connect/reconnect",
+		description: "Connect to an IDE, toggle auto-connect/reconnect/selection context",
 		handler: async (_args, ctx) => {
 			currentCtx = ctx
 			const ides = await discoverMatchingIdes(ctx.cwd)
 
-			type ToggleItem = "autoConnectOnStartup" | "autoReconnect"
+			type ToggleItem = "autoConnectOnStartup" | "autoReconnect" | "selectionContext"
 
 			function labelForToggle(key: ToggleItem): string {
-				const val = key === "autoConnectOnStartup" ? autoConnectOnStartup : autoReconnect
-				const label = key === "autoConnectOnStartup" ? "Auto-connect on startup" : "Auto-reconnect on loss"
+				let val: boolean
+				let label: string
+				if (key === "autoConnectOnStartup") {
+					val = autoConnectOnStartup
+					label = "Auto-connect on startup"
+				} else if (key === "autoReconnect") {
+					val = autoReconnect
+					label = "Auto-reconnect on loss"
+				} else {
+					val = selectionContextEnabled
+					label = "Selection context"
+				}
 				return `${label}  ${val ? "on" : "off"}`
 			}
 
-			const toggleItems = new Set<ToggleItem>(["autoConnectOnStartup", "autoReconnect"])
+			const toggleItems = new Set<ToggleItem>(["autoConnectOnStartup", "autoReconnect", "selectionContext"])
 			function isToggleItem(value: string): value is ToggleItem {
 				return toggleItems.has(value as ToggleItem)
 			}
@@ -426,7 +505,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 				}),
 				{ value: "Disconnect", label: "Disconnect" },
 				{ value: "autoConnectOnStartup", label: labelForToggle("autoConnectOnStartup") },
-				{ value: "autoReconnect", label: labelForToggle("autoReconnect") }
+				{ value: "autoReconnect", label: labelForToggle("autoReconnect") },
+				{ value: "selectionContext", label: labelForToggle("selectionContext") }
 			]
 
 			let initialIndex = items.length - 1
@@ -480,7 +560,17 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 							if (sel && isToggleItem(sel.value)) {
 								if (sel.value === "autoConnectOnStartup") autoConnectOnStartup = !autoConnectOnStartup
 								else if (sel.value === "autoReconnect") autoReconnect = !autoReconnect
+								else {
+									selectionContextEnabled = !selectionContextEnabled
+									if (!selectionContextEnabled) {
+										pendingSelectionSnapshot = undefined
+										activeSelectionSnapshot = null
+										activeSelectionUserTimestamp = undefined
+										awaitingSelectionUserMessage = false
+									}
+								}
 								void saveConfig()
+								updateStatus()
 								const idx = items.findIndex(i => i.value === sel.value)
 								if (idx !== -1) items[idx] = { value: sel.value, label: labelForToggle(sel.value) }
 								selectList.invalidate()
@@ -514,13 +604,79 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		}
 	})
 
+	pi.on("input", (event, ctx) => {
+		const streamingBehavior = (event as { streamingBehavior?: "steer" | "followUp" }).streamingBehavior
+		const canUseSelection =
+			selectionContextEnabled &&
+			(event.source === "interactive" || event.source === "rpc") &&
+			streamingBehavior === undefined &&
+			ctx.isIdle()
+		pendingSelectionSnapshot = canUseSelection ? snapshotSelection() : null
+		return { action: "continue" }
+	})
+
+	pi.on("before_agent_start", () => {
+		activeSelectionSnapshot = selectionContextEnabled ? (pendingSelectionSnapshot ?? null) : null
+		activeSelectionUserTimestamp = undefined
+		awaitingSelectionUserMessage = activeSelectionSnapshot !== null
+		pendingSelectionSnapshot = undefined
+	})
+
+	pi.on("message_start", event => {
+		if (event.message.role !== "user") return
+		if (awaitingSelectionUserMessage) {
+			activeSelectionUserTimestamp = event.message.timestamp
+			awaitingSelectionUserMessage = false
+			return
+		}
+		if (activeSelectionUserTimestamp !== undefined && event.message.timestamp !== activeSelectionUserTimestamp) {
+			activeSelectionSnapshot = null
+			activeSelectionUserTimestamp = undefined
+		}
+	})
+
+	pi.on("context", event => {
+		if (!selectionContextEnabled || !activeSelectionSnapshot || activeSelectionUserTimestamp === undefined) return
+
+		let selectionUserIndex = -1
+		for (let i = event.messages.length - 1; i >= 0; i--) {
+			const message = event.messages[i]
+			if (message?.role === "user" && message.timestamp === activeSelectionUserTimestamp) {
+				selectionUserIndex = i
+				break
+			}
+		}
+		if (selectionUserIndex === -1) return
+
+		const messages = [...event.messages]
+		messages.splice(selectionUserIndex + 1, 0, {
+			role: "user" as const,
+			content: formatSelectionContext(activeSelectionSnapshot),
+			timestamp: Date.now()
+		})
+		return { messages }
+	})
+
+	pi.on("agent_end", () => {
+		pendingSelectionSnapshot = undefined
+		activeSelectionSnapshot = null
+		activeSelectionUserTimestamp = undefined
+		awaitingSelectionUserMessage = false
+	})
+
 	pi.on("session_start", async (_event, ctx) => {
+		currentCtx = ctx
 		projectDir = ctx.cwd
 		await loadConfig()
+		updateStatus()
 		if (autoConnectOnStartup) await connectOnStartup(ctx)
 	})
 
 	pi.on("session_shutdown", () => {
+		pendingSelectionSnapshot = undefined
+		activeSelectionSnapshot = null
+		activeSelectionUserTimestamp = undefined
+		awaitingSelectionUserMessage = false
 		disconnect()
 		currentCtx?.ui.setStatus(STATUS_KEY, undefined)
 	})
