@@ -49,3 +49,12 @@
 - [x] Normalize at-mention refs to 1-based lines.
 - [x] Hide footer selection when selection context disabled.
 - [x] Typecheck.
+
+## Next cleanup/refactor
+
+- [x] Add direct `typebox` dependency for runtime validation.
+- [x] Use TypeBox at JSON boundaries: config file, lockfile, WebSocket JSON-RPC params.
+- [x] Split config parsing/persistence into `ConfigState`.
+- [x] Split IDE Selection + turn snapshot lifecycle into `SelectionState`.
+- [x] Move `/ide` command UI into its own module.
+- [x] Keep WebSocket discovery/connect/reconnect in extension entrypoint.
