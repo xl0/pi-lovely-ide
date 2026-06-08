@@ -5,14 +5,21 @@ import { fileURLToPath } from "node:url"
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 import Type, { type Static } from "typebox"
 import { Compile } from "typebox/compile"
-import { WebSocket } from "undici"
 import { registerIdeCommand } from "./command.js"
 import { ConfigState } from "./config.js"
-import { displayPathForCwd, parseAtMention, parseIdeSelection, SelectionState } from "./selection.js"
+import { IdeConnection, type JsonRpcMessage } from "./connection.js"
+import { formatAtMention, parseAtMention } from "./mention.js"
+import {
+	displayPathForCwd,
+	injectSelectionContext,
+	parseIdeSelection,
+	SELECTION_CONTEXT_CUSTOM_TYPE,
+	type SelectionSnapshot,
+	SelectionState
+} from "./selection.js"
 
 const IDE_LOCK_DIR = join(homedir(), ".claude", "ide")
 const STATUS_KEY = "lovely-ide"
-const CONNECT_TIMEOUT_MS = 3_000
 const RECONNECT_DELAY_MS = 1_000
 
 const IdeLockFileSchema = Type.Object(
@@ -37,32 +44,6 @@ interface DiscoveredIde {
 	projectDir: string
 }
 
-const JsonRpcMessageSchema = Type.Object(
-	{
-		jsonrpc: Type.Optional(Type.String()),
-		id: Type.Optional(Type.Union([Type.String(), Type.Number()])),
-		method: Type.Optional(Type.String()),
-		params: Type.Optional(Type.Unknown()),
-		result: Type.Optional(Type.Unknown()),
-		error: Type.Optional(Type.Unknown())
-	},
-	{ additionalProperties: true }
-)
-
-type JsonRpcMessage = Static<typeof JsonRpcMessageSchema>
-
-const JsonRpcMessageValidator = Compile(JsonRpcMessageSchema)
-
-function parseJsonRpcMessage(raw: string): JsonRpcMessage | undefined {
-	let parsed: unknown
-	try {
-		parsed = JSON.parse(raw)
-	} catch {
-		return undefined
-	}
-	return JsonRpcMessageValidator.Check(parsed) ? parsed : undefined
-}
-
 function parseIdeLockFile(raw: string): IdeLockFile | undefined {
 	let parsed: unknown
 	try {
@@ -75,12 +56,13 @@ function parseIdeLockFile(raw: string): IdeLockFile | undefined {
 
 export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let currentCtx: ExtensionContext | null = null
-	let ws: WebSocket | null = null
+	let connection: IdeConnection | null = null
 	let connected: DiscoveredIde | null = null
 	let nextRequestId = 1
 	let connecting = false
-	let connectingSocket: WebSocket | null = null
+	let connectingConnection: IdeConnection | null = null
 	let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+	let pendingSelection: SelectionSnapshot | null | undefined
 
 	const config = new ConfigState()
 	const selection = new SelectionState(displayPath)
@@ -146,48 +128,6 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		return ides
 	}
 
-	function sendJson(socket: WebSocket, message: JsonRpcMessage): void {
-		socket.send(JSON.stringify(message))
-	}
-
-	function sendNotification(method: string, params?: unknown): void {
-		if (!ws || ws.readyState !== WebSocket.OPEN) return
-		sendJson(ws, { jsonrpc: "2.0", method, params })
-	}
-
-	function initialize(socket: WebSocket): Promise<void> {
-		const id = nextRequestId++
-		return new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error("initialize timed out")), CONNECT_TIMEOUT_MS)
-
-			const onMessage = (event: Event) => {
-				const data = (event as MessageEvent).data
-				const raw = typeof data === "string" ? data : String(data)
-				const msg = parseJsonRpcMessage(raw)
-				if (!msg) return
-
-				if (msg.id === id && msg.method == null) {
-					clearTimeout(timer)
-					socket.removeEventListener("message", onMessage)
-					if (msg.error) reject(new Error(`initialize failed: ${JSON.stringify(msg.error)}`))
-					else resolve()
-				}
-			}
-
-			socket.addEventListener("message", onMessage)
-			sendJson(socket, {
-				jsonrpc: "2.0",
-				id,
-				method: "initialize",
-				params: {
-					protocolVersion: "2025-03-26",
-					capabilities: {},
-					clientInfo: { name: "pi-lovely-ide", version: "0.1.0" }
-				}
-			})
-		})
-	}
-
 	function displayPath(path: string): string {
 		return displayPathForCwd(currentCtx?.cwd, path)
 	}
@@ -210,35 +150,25 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} ${pid}${selectionText ? ` ${selectionText}` : ""}`)
 	}
 
-	function insertIntoEditor(text: string): void {
-		if (!currentCtx) return
-		currentCtx.ui.pasteToEditor(`${text} `)
-	}
-
-	function handleMessage(socket: WebSocket, event: Event): void {
-		const data = (event as MessageEvent).data
-		const raw = typeof data === "string" ? data : String(data)
-		const msg = parseJsonRpcMessage(raw)
-		if (!msg) return
-
-		if (msg.id != null && msg.method != null) {
+	function handleMessage(message: JsonRpcMessage, activeConnection: IdeConnection): void {
+		if (message.id != null && message.method != null) {
 			// Minimal success response for IDE-initiated MCP requests such as ping.
-			sendJson(socket, { jsonrpc: "2.0", id: msg.id, result: {} })
+			activeConnection.send({ jsonrpc: "2.0", id: message.id, result: {} })
 			return
 		}
 
-		if (msg.method === "selection_changed") {
-			const params = parseIdeSelection(msg.params ?? {})
+		if (message.method === "selection_changed") {
+			const params = parseIdeSelection(message.params ?? {})
 			if (!params) return
 			selection.setCurrent(params)
 			updateStatus()
 			return
 		}
 
-		if (msg.method === "at_mentioned") {
-			const mention = parseAtMention(msg.params)
-			if (!mention) return
-			insertIntoEditor(selection.mentionText(mention))
+		if (message.method === "at_mentioned") {
+			const mention = parseAtMention(message.params)
+			if (!mention || !currentCtx) return
+			currentCtx.ui.pasteToEditor(`${formatAtMention(mention, displayPath)} `)
 			updateStatus()
 		}
 	}
@@ -254,7 +184,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		if (!config.autoReconnect || reconnectTimer || !currentCtx) return
 		reconnectTimer = setTimeout(() => {
 			reconnectTimer = undefined
-			if (!config.autoReconnect || !currentCtx || ws || connecting) return
+			if (!config.autoReconnect || !currentCtx || connection || connecting) return
 			void reconnectMatching(currentCtx)
 		}, RECONNECT_DELAY_MS)
 	}
@@ -262,66 +192,43 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	async function connectToIde(ide: DiscoveredIde): Promise<void> {
 		if (!ide.lock.authToken || connecting) return
 		connecting = true
-		const socket = new WebSocket(`ws://127.0.0.1:${ide.port}`, {
-			protocols: ["mcp"],
-			headers: { "x-claude-code-ide-authorization": ide.lock.authToken }
+		const newConnection = new IdeConnection({
+			port: ide.port,
+			authToken: ide.lock.authToken,
+			requestId: nextRequestId++,
+			onMessage: handleMessage,
+			onClose(closedConnection) {
+				if (connection === closedConnection) {
+					connection = null
+					connected = null
+					selection.clearCurrent()
+					updateStatus()
+					scheduleReconnect()
+				}
+			}
 		})
-		connectingSocket = socket
+		connectingConnection = newConnection
 
 		try {
-			await new Promise<void>((resolve, reject) => {
-				const timer = setTimeout(() => reject(new Error("connect timed out")), CONNECT_TIMEOUT_MS)
-				socket.addEventListener(
-					"open",
-					() => {
-						clearTimeout(timer)
-						resolve()
-					},
-					{ once: true }
-				)
-				socket.addEventListener(
-					"error",
-					() => {
-						clearTimeout(timer)
-						reject(new Error("websocket error"))
-					},
-					{ once: true }
-				)
-			})
-
-			await initialize(socket)
-			if (connectingSocket !== socket) {
-				socket.close()
+			await newConnection.connect()
+			if (connectingConnection !== newConnection) {
+				newConnection.close()
 				return
 			}
-		} catch (err) {
-			socket.close()
-			throw err
+
+			clearReconnectTimer()
+			connection = newConnection
+			connected = ide
+			selection.clearCurrent()
+			updateStatus()
 		} finally {
 			connecting = false
-			if (connectingSocket === socket) connectingSocket = null
+			if (connectingConnection === newConnection) connectingConnection = null
 		}
-
-		clearReconnectTimer()
-		ws = socket
-		connected = ide
-		selection.clearCurrent()
-		sendNotification("notifications/initialized")
-		socket.addEventListener("message", event => handleMessage(socket, event))
-		socket.addEventListener("close", () => {
-			if (ws === socket) {
-				ws = null
-				connected = null
-				selection.clearCurrent()
-				updateStatus()
-				scheduleReconnect()
-			}
-		})
-		updateStatus()
 	}
 
 	async function reconnectMatching(ctx: ExtensionContext): Promise<void> {
-		if (ws || connecting) return
+		if (connection || connecting) return
 		const ides = await discoverMatchingIdes(ctx.cwd)
 		for (const ide of ides) {
 			try {
@@ -350,21 +257,20 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	function disconnect(): void {
 		clearReconnectTimer()
-		const socket = ws
-		const pendingSocket = connectingSocket
-		ws = null
+		const activeConnection = connection
+		const pendingConnection = connectingConnection
+		connection = null
 		connected = null
 		selection.clearCurrent()
-		if (socket) socket.close()
-		if (pendingSocket) pendingSocket.close()
+		if (activeConnection) activeConnection.close()
+		if (pendingConnection) pendingConnection.close()
 		connecting = false
-		connectingSocket = null
+		connectingConnection = null
 		updateStatus()
 	}
 
 	registerIdeCommand(pi, {
 		config,
-		selection,
 		discoverMatchingIdes,
 		connected: () => connected,
 		connect: connectFromCommand,
@@ -375,30 +281,41 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	pi.on("input", (event, ctx) => {
 		const streamingBehavior = (event as { streamingBehavior?: "steer" | "followUp" }).streamingBehavior
-		const canUseSelection =
+		if (
 			config.selectionContext &&
 			(event.source === "interactive" || event.source === "rpc") &&
 			streamingBehavior === undefined &&
 			ctx.isIdle()
-		selection.capturePending(canUseSelection)
+		) {
+			pendingSelection = selection.snapshotCurrent()
+		} else {
+			pendingSelection = undefined
+		}
 		return { action: "continue" }
 	})
 
 	pi.on("before_agent_start", () => {
-		selection.startTurn(config.selectionContext)
-	})
-
-	pi.on("message_start", event => {
-		selection.handleMessageStart(event.message)
+		const snapshot = config.selectionContext ? (pendingSelection ?? null) : null
+		pendingSelection = undefined
+		if (snapshot) {
+			return {
+				message: {
+					customType: SELECTION_CONTEXT_CUSTOM_TYPE,
+					content: "",
+					display: false,
+					details: snapshot
+				}
+			}
+		}
 	})
 
 	pi.on("context", event => {
-		const messages = selection.injectContext(event.messages, config.selectionContext)
+		const messages = injectSelectionContext(event.messages, config.selectionContext, displayPath)
 		if (messages) return { messages }
 	})
 
 	pi.on("agent_end", () => {
-		selection.clearTurn()
+		pendingSelection = undefined
 	})
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -410,7 +327,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	})
 
 	pi.on("session_shutdown", () => {
-		selection.clearTurn()
+		pendingSelection = undefined
 		disconnect()
 		currentCtx?.ui.setStatus(STATUS_KEY, undefined)
 	})

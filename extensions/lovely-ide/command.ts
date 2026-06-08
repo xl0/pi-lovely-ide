@@ -2,7 +2,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { DynamicBorder } from "@earendil-works/pi-coding-agent"
 import { Container, matchesKey, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui"
 import type { ConfigState, ToggleKey } from "./config.js"
-import type { SelectionState } from "./selection.js"
 
 export interface CommandIde {
 	port: number
@@ -14,7 +13,6 @@ export interface CommandIde {
 
 interface IdeCommandDeps<TIde extends CommandIde> {
 	config: ConfigState
-	selection: SelectionState
 	discoverMatchingIdes(cwd: string): Promise<TIde[]>
 	connected(): TIde | null
 	connect(ide: TIde): Promise<void>
@@ -46,7 +44,7 @@ export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, de
 			const ides = await deps.discoverMatchingIdes(ctx.cwd)
 
 			function labelForToggle(key: ToggleKey): string {
-				return `${TOGGLE_LABELS[key]}  ${deps.config.get(key) ? "on" : "off"}`
+				return `${TOGGLE_LABELS[key]}  ${deps.config[key] ? "on" : "off"}`
 			}
 
 			const connected = deps.connected()
@@ -111,8 +109,7 @@ export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, de
 							if (matchesKey(data, "space")) {
 								const sel = selectList.getSelectedItem()
 								if (sel && isToggleItem(sel.value)) {
-									deps.config.toggle(sel.value)
-									if (sel.value === "selectionContext" && !deps.config.selectionContext) deps.selection.clearTurn()
+									deps.config[sel.value] = !deps.config[sel.value]
 									saveConfigBestEffort(deps.config)
 									deps.updateStatus()
 									const idx = items.findIndex(i => i.value === sel.value)

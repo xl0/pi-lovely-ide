@@ -5,11 +5,11 @@
 - [x] 1. Trigger: when should selection be sent?
   - Decision: selection is ambient context per user-submitted turn when a non-empty IDE selection exists; snapshot at submit, not live mid-turn.
 - [x] 2. Persistence: should selection enter session history?
-  - Decision: no; selection snapshot is transient model context only, never appended to session history.
+  - Decision: store a hidden details-only `lovely-ide.selection` custom marker; extension projects it into model context and removes marker from LLM-visible messages.
 - [x] 3. Shape: reference-only vs selected text payload?
   - Decision: send path + line range; include selected text only when selection spans fewer than 3 lines.
 - [x] 4. Placement: where in model input?
-  - Decision: inject via Pi `context` hook as transient custom/user message after latest user prompt; avoid system prompt and provider-payload mutation.
+  - Decision: inject via Pi `context` hook by appending selection context onto the preceding user message content; avoid system prompt and provider-payload mutation.
 - [x] 5. Freshness: snapshot time and stale behavior?
   - Decision: snapshot at user submit; reuse same snapshot across provider calls in that user turn; omit if IDE reports empty selection.
 - [x] 6. Size limits and privacy controls?
@@ -17,7 +17,7 @@
 - [x] 7. Provider cache impact?
   - Decision: skip prototype now; path/range suffix is small enough, inspect cache later if needed.
 - [x] 8. Implementation hook in Pi?
-  - Decision: use `before_agent_start`/input-time snapshot state plus `context` event transient injection.
+  - Decision: use `input` snapshot, `before_agent_start` hidden custom marker, and `context` projection into the previous user message.
 - [x] 9. Small-selection text cap?
   - Decision: include selected text only when line count is 1-2 and UTF-8 size is <=2KB; otherwise omit text.
 - [x] 10. Line numbering/range semantics?
@@ -43,7 +43,7 @@
 
 - [x] Add selection-context config toggle in `/ide`, default on.
 - [x] Snapshot latest non-empty selection for initial idle interactive/RPC prompts only.
-- [x] Inject transient selection context in `context` hook without appending session entries.
+- [x] Store hidden details-only selection marker, then project latest marker into user prompt in `context`.
 - [x] Format compact XML-ish `<ide file="..." lines="...">`; include raw `<selected>` only for 1-2 lines and <=2KB; no omission marker.
 - [x] Keep ambient hint via compact `<ide>` tag only; no tool mention.
 - [x] Normalize at-mention refs to 1-based lines.

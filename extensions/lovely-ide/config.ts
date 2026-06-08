@@ -32,15 +32,6 @@ export class ConfigState {
 		return !this.autoConnectOnStartup && !this.autoReconnect
 	}
 
-	get(key: ToggleKey): boolean {
-		return this[key]
-	}
-
-	toggle(key: ToggleKey): boolean {
-		this[key] = !this[key]
-		return this[key]
-	}
-
 	async load(): Promise<void> {
 		if (!this.#projectDir) return
 		let parsed: unknown

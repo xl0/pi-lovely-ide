@@ -5,6 +5,7 @@ import Type, { type Static } from "typebox"
 import { Compile } from "typebox/compile"
 
 const MAX_SELECTED_TEXT_BYTES = 2 * 1024
+export const SELECTION_CONTEXT_CUSTOM_TYPE = "lovely-ide.selection"
 
 const PositionSchema = Type.Object(
 	{
@@ -40,29 +41,16 @@ export function parseIdeSelection(value: unknown): IdeSelection | undefined {
 	return IdeSelectionValidator.Check(value) ? value : undefined
 }
 
-export const AtMentionSchema = Type.Object(
-	{
-		filePath: Type.String(),
-		lineStart: Type.Optional(Type.Integer({ minimum: 0 })),
-		lineEnd: Type.Optional(Type.Integer({ minimum: 0 }))
-	},
-	{ additionalProperties: true }
-)
-
-export type AtMention = Static<typeof AtMentionSchema>
-
-const AtMentionValidator = Compile(AtMentionSchema)
-
-export function parseAtMention(value: unknown): AtMention | undefined {
-	return AtMentionValidator.Check(value) ? value : undefined
-}
-
-interface SelectionSnapshot {
+export interface SelectionSnapshot {
 	filePath: string
 	lineStart: number
 	lineEnd: number
 	text?: string
 }
+
+type ContextMessage = ContextEvent["messages"][number]
+type ContextUserMessage = Extract<ContextMessage, { role: "user" }>
+type ContextCustomMessage = Extract<ContextMessage, { role: "custom" }>
 
 interface SelectionLineRange {
 	lineStart: number
@@ -76,119 +64,115 @@ export function displayPathForCwd(cwd: string | undefined, path: string): string
 	return rel && !rel.startsWith("..") && !rel.startsWith("/") ? rel : path
 }
 
-function lineRangeText(lineStart: number, lineEnd: number): string {
+export function lineRangeText(lineStart: number, lineEnd: number): string {
 	return lineStart === lineEnd ? String(lineStart) : `${lineStart}-${lineEnd}`
+}
+
+function selectionLineRange(selection: IdeSelection): SelectionLineRange | undefined {
+	const range = selection.selection
+	if (!range) return undefined
+
+	const endLineZeroBased = range.end.line - (range.end.character === 0 ? 1 : 0)
+	const lineStart = range.start.line + 1
+	const lineEnd = endLineZeroBased + 1
+	if (lineEnd < lineStart) return undefined
+	return { lineStart, lineEnd, lineCount: lineEnd - lineStart + 1 }
+}
+
+function parseSnapshot(value: unknown): SelectionSnapshot | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
+	const record = value as { filePath?: unknown; lineStart?: unknown; lineEnd?: unknown; text?: unknown }
+	if (typeof record.filePath !== "string") return undefined
+	if (!Number.isInteger(record.lineStart) || !Number.isInteger(record.lineEnd)) return undefined
+	if (typeof record.text !== "string" && record.text !== undefined) return undefined
+	return {
+		filePath: record.filePath,
+		lineStart: record.lineStart as number,
+		lineEnd: record.lineEnd as number,
+		...(record.text !== undefined ? { text: record.text } : {})
+	}
+}
+
+function isSelectionContextMessage(message: ContextMessage | undefined): message is ContextCustomMessage {
+	return message?.role === "custom" && message.customType === SELECTION_CONTEXT_CUSTOM_TYPE
+}
+
+function appendContextToContent(content: ContextUserMessage["content"], context: string): ContextUserMessage["content"] {
+	const suffix = `\n\n${context}`
+	if (typeof content === "string") return `${content}${suffix}`
+	return [...content, { type: "text", text: suffix }]
+}
+
+function formatSelectionContext(snapshot: SelectionSnapshot, displayPath: (path: string) => string): string {
+	const file = displayPath(snapshot.filePath)
+	const lines = lineRangeText(snapshot.lineStart, snapshot.lineEnd)
+	if (snapshot.text !== undefined) {
+		return `<ide file="${file}" lines="${lines}">\n<selected>\n${snapshot.text}\n</selected>\n</ide>`
+	}
+	return `<ide file="${file}" lines="${lines}"></ide>`
+}
+
+export function injectSelectionContext(
+	messages: ContextEvent["messages"],
+	enabled: boolean,
+	displayPath: (path: string) => string
+): ContextEvent["messages"] | undefined {
+	let lastMarkerIndex = -1
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (isSelectionContextMessage(messages[i])) {
+			lastMarkerIndex = i
+			break
+		}
+	}
+	if (lastMarkerIndex === -1) return undefined
+
+	const patched: ContextEvent["messages"] = []
+	let targetUserIndex = -1
+	let snapshot: SelectionSnapshot | undefined
+	for (let i = 0; i < messages.length; i++) {
+		const message = messages[i]
+		if (!message) continue
+		if (isSelectionContextMessage(message)) {
+			if (enabled && i === lastMarkerIndex) {
+				snapshot = parseSnapshot(message.details)
+				for (let j = patched.length - 1; j >= 0; j--) {
+					if (patched[j]?.role === "user") {
+						targetUserIndex = j
+						break
+					}
+				}
+			}
+			continue
+		}
+		patched.push(message)
+	}
+
+	const targetUser = patched[targetUserIndex]
+	if (snapshot && targetUser?.role === "user") {
+		patched[targetUserIndex] = {
+			...targetUser,
+			content: appendContextToContent(targetUser.content, formatSelectionContext(snapshot, displayPath))
+		}
+	}
+	return patched
 }
 
 export class SelectionState {
 	#current: IdeSelection | null = null
-	#pendingSnapshot: SelectionSnapshot | null | undefined
-	#activeSnapshot: SelectionSnapshot | null = null
-	#activeUserTimestamp: number | undefined
-	#awaitingUserMessage = false
 
 	constructor(private readonly displayPath: (path: string) => string) {}
 
 	setCurrent(selection: IdeSelection): void {
-		this.#current = this.isActiveSelection(selection) ? selection : null
+		this.#current = selection.filePath && selection.selection?.isEmpty !== true && selectionLineRange(selection) ? selection : null
 	}
 
 	clearCurrent(): void {
 		this.#current = null
 	}
 
-	clearTurn(): void {
-		this.#pendingSnapshot = undefined
-		this.#activeSnapshot = null
-		this.#activeUserTimestamp = undefined
-		this.#awaitingUserMessage = false
-	}
-
-	clearAll(): void {
-		this.clearCurrent()
-		this.clearTurn()
-	}
-
-	capturePending(canUseSelection: boolean): void {
-		this.#pendingSnapshot = canUseSelection ? this.snapshot() : null
-	}
-
-	startTurn(enabled: boolean): void {
-		this.#activeSnapshot = enabled ? (this.#pendingSnapshot ?? null) : null
-		this.#activeUserTimestamp = undefined
-		this.#awaitingUserMessage = this.#activeSnapshot !== null
-		this.#pendingSnapshot = undefined
-	}
-
-	handleMessageStart(message: { role?: string; timestamp?: number }): void {
-		if (message.role !== "user") return
-		if (this.#awaitingUserMessage) {
-			this.#activeUserTimestamp = message.timestamp
-			this.#awaitingUserMessage = false
-			return
-		}
-		if (this.#activeUserTimestamp !== undefined && message.timestamp !== this.#activeUserTimestamp) {
-			this.#activeSnapshot = null
-			this.#activeUserTimestamp = undefined
-		}
-	}
-
-	injectContext(messages: ContextEvent["messages"], enabled: boolean): ContextEvent["messages"] | undefined {
-		if (!enabled || !this.#activeSnapshot || this.#activeUserTimestamp === undefined) return
-
-		let selectionUserIndex = -1
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const message = messages[i]
-			if (message?.role === "user" && message.timestamp === this.#activeUserTimestamp) {
-				selectionUserIndex = i
-				break
-			}
-		}
-		if (selectionUserIndex === -1) return
-
-		const patched = [...messages]
-		patched.splice(selectionUserIndex + 1, 0, {
-			role: "user",
-			content: this.formatContext(this.#activeSnapshot),
-			timestamp: Date.now()
-		})
-		return patched
-	}
-
-	describeCurrent(): string | undefined {
-		if (!this.#current?.filePath) return undefined
-
-		const range = this.selectionLineRange(this.#current)
-		if (!range) return undefined
-		return `${this.displayPath(this.#current.filePath)}#${lineRangeText(range.lineStart, range.lineEnd)}`
-	}
-
-	mentionText(mention: AtMention): string {
-		let ref = `@${this.displayPath(mention.filePath)}`
-		if (typeof mention.lineStart === "number" && typeof mention.lineEnd === "number") {
-			ref += `#${lineRangeText(mention.lineStart + 1, mention.lineEnd + 1)}`
-		}
-		return ref
-	}
-
-	private selectionLineRange(selection: IdeSelection): SelectionLineRange | undefined {
-		const range = selection.selection
-		if (!range) return undefined
-
-		const endLineZeroBased = range.end.line - (range.end.character === 0 ? 1 : 0)
-		const lineStart = range.start.line + 1
-		const lineEnd = endLineZeroBased + 1
-		if (lineEnd < lineStart) return undefined
-		return { lineStart, lineEnd, lineCount: lineEnd - lineStart + 1 }
-	}
-
-	private isActiveSelection(selection: IdeSelection | undefined): selection is IdeSelection & { filePath: string } {
-		return !!selection?.filePath && selection.selection?.isEmpty !== true && this.selectionLineRange(selection) !== undefined
-	}
-
-	private snapshot(): SelectionSnapshot | null {
+	snapshotCurrent(): SelectionSnapshot | null {
 		if (!this.#current?.filePath) return null
-		const range = this.selectionLineRange(this.#current)
+		const range = selectionLineRange(this.#current)
 		if (!range) return null
 
 		const snapshot: SelectionSnapshot = {
@@ -207,12 +191,10 @@ export class SelectionState {
 		return snapshot
 	}
 
-	private formatContext(snapshot: SelectionSnapshot): string {
-		const file = this.displayPath(snapshot.filePath)
-		const lines = lineRangeText(snapshot.lineStart, snapshot.lineEnd)
-		if (snapshot.text !== undefined) {
-			return `<ide file="${file}" lines="${lines}">\n<selected>\n${snapshot.text}\n</selected>\n</ide>`
-		}
-		return `<ide file="${file}" lines="${lines}"></ide>`
+	describeCurrent(): string | undefined {
+		if (!this.#current?.filePath) return undefined
+		const range = selectionLineRange(this.#current)
+		if (!range) return undefined
+		return `${this.displayPath(this.#current.filePath)}#${lineRangeText(range.lineStart, range.lineEnd)}`
 	}
 }

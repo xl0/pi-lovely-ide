@@ -29,13 +29,13 @@
 		"biome:check": "biome check ."
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.4.14",
-		"@types/node": "^24.12.4",
-		"@typescript/native-preview": "^7.0.0-dev.20260502.1",
+		"@biomejs/biome": "^2.4.16",
+		"@types/node": "^25.9.2",
+		"@typescript/native-preview": "^7.0.0-dev.20260606.1",
 		"typescript": "^6.0.3"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": "*"
+		"@earendil-works/pi-coding-agent": "^0.79.0"
 	},
 	"pi": {
 		"extensions": [
@@ -43,7 +43,7 @@
 		]
 	},
 	"dependencies": {
-		"typebox": "^1.1.39",
-		"undici": "^8.3.0"
+		"typebox": "^1.2.2",
+		"undici": "^8.4.0"
 	}
 }

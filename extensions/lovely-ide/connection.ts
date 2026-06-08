@@ -30,10 +30,6 @@ function parseJsonRpcMessage(raw: string): JsonRpcMessage | undefined {
 	return JsonRpcMessageValidator.Check(parsed) ? parsed : undefined
 }
 
-function sendJson(socket: WebSocket, message: JsonRpcMessage): void {
-	socket.send(JSON.stringify(message))
-}
-
 function openAndInitialize(socket: WebSocket, requestId: number): Promise<void> {
 	return new Promise((resolve, reject) => {
 		let opened = false
@@ -52,16 +48,18 @@ function openAndInitialize(socket: WebSocket, requestId: number): Promise<void> 
 
 		const onOpen = () => {
 			opened = true
-			sendJson(socket, {
-				jsonrpc: "2.0",
-				id: requestId,
-				method: "initialize",
-				params: {
-					protocolVersion: "2025-03-26",
-					capabilities: {},
-					clientInfo: { name: "pi-lovely-ide", version: "0.1.0" }
-				}
-			})
+			socket.send(
+				JSON.stringify({
+					jsonrpc: "2.0",
+					id: requestId,
+					method: "initialize",
+					params: {
+						protocolVersion: "2025-03-26",
+						capabilities: {},
+						clientInfo: { name: "pi-lovely-ide", version: "0.1.0" }
+					}
+				})
+			)
 		}
 
 		const onError = () => fail(new Error("websocket error"))
@@ -126,7 +124,7 @@ export class IdeConnection {
 
 	send(message: JsonRpcMessage): void {
 		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return
-		sendJson(this.socket, message)
+		this.socket.send(JSON.stringify(message))
 	}
 
 	close(): void {
