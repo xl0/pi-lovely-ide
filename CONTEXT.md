@@ -17,8 +17,24 @@ Transient model context built from a Selection Snapshot for an initial idle user
 _Avoid_: message history, at mention, live IDE state
 
 **At Mention**:
-An explicit IDE-originated 1-based file/range reference inserted into the user's editor message.
+An explicit IDE-originated file/range reference inserted into the user's editor message; wire payload uses zero-based line/character range and may include referenced text, while inserted editor text is 1-based.
 _Avoid_: selection context, ambient context
+
+**Pi IDE Protocol**:
+The pi-native local IDE protocol for editor-originated context events such as selection and mentions. It is not Claude MCP compatibility.
+_Avoid_: Claude IDE protocol, MCP protocol
+
+**Claude Compatibility Adapter**:
+Support for consuming Claude-style IDE lockfiles/messages at the edge while preserving the Pi IDE Protocol as the canonical contract.
+_Avoid_: core protocol, native protocol
+
+**Pi Instance**:
+One Pi process/session in a workspace, identified to the IDE by process PID plus session id/name from Pi's session manager. A Pi Instance may have multiple IDE connections.
+_Avoid_: workspace, IDE server
+
+**IDE Connection Subscription**:
+The event types a specific Pi IDE WebSocket connection asks the IDE to send, currently `selection` and `mention`.
+_Avoid_: capability, tool permission, purpose
 
 ## Relationships
 

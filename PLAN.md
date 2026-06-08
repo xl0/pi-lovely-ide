@@ -1,68 +1,47 @@
 # Plan
 
-## Question tree: current IDE selection in model context
+## Question tree: simpler IDE protocol
 
-- [x] 1. Trigger: when should selection be sent?
-  - Decision: selection is ambient context per user-submitted turn when a non-empty IDE selection exists; snapshot at submit, not live mid-turn.
-- [x] 2. Persistence: should selection enter session history?
-  - Decision: store a hidden details-only `lovely-ide.selection` custom marker; extension projects it into model context and removes marker from LLM-visible messages.
-- [x] 3. Shape: reference-only vs selected text payload?
-  - Decision: send path + line range; include selected text only when selection spans fewer than 3 lines.
-- [x] 4. Placement: where in model input?
-  - Decision: inject via Pi `context` hook by appending selection context onto the preceding user message content; avoid system prompt and provider-payload mutation.
-- [x] 5. Freshness: snapshot time and stale behavior?
-  - Decision: snapshot at user submit; reuse same snapshot across provider calls in that user turn; omit if IDE reports empty selection.
-- [x] 6. Size limits and privacy controls?
-  - Decision: ambient selection context defaults on; add `/ide` toggle to disable.
-- [x] 7. Provider cache impact?
-  - Decision: skip prototype now; path/range suffix is small enough, inspect cache later if needed.
-- [x] 8. Implementation hook in Pi?
-  - Decision: use `input` snapshot, `before_agent_start` hidden custom marker, and `context` projection into the previous user message.
-- [x] 9. Small-selection text cap?
-  - Decision: include selected text only when line count is 1-2 and UTF-8 size is <=2KB; otherwise omit text.
-- [x] 10. Line numbering/range semantics?
-  - Decision: model-facing ranges are 1-based lines; if IDE `end.character` is 0, final selected line is `end.line - 1`.
-- [x] 11. Snapshot wording?
-  - Decision: keep wording compact; `<ide>` tag conveys ambient IDE context; do not mention tools.
-- [x] 12. Streaming queued prompts?
-  - Decision: only initial idle interactive/RPC prompts get selection snapshots; steering/follow-up queued while streaming do not.
-- [x] 13. At-mention line numbering?
-  - Decision: normalize at-mention refs to 1-based lines too.
-- [x] 14. Footer/status when selection context disabled?
-  - Decision: hide selection in footer when ambient selection context is disabled.
-- [x] 15. Exact selection context format?
-  - Decision: compact XML-ish `<ide file="..." lines="...">`; use `<selected>` child when text included; no Markdown fence.
-- [x] 16. Selected text language/fencing?
-  - Decision: no code fence/language hint; raw selected text inside `<selected>` tag.
-- [x] 17. Escaping?
-  - Decision: do not XML-escape selected text; this is LLM input, not strict XML.
-- [x] 18. Omission marker?
-  - Decision: omit `<selected>` entirely when selected text is not included; no omission marker.
+- [x] 1. Goal: clone Claude Code compatibility, or define pi-native protocol and bridge Claude only as an adapter?
+  - Decision: pi-native minimal protocol; keep Claude compatibility as discovery/input adapter only.
+- [x] 2. Transport/discovery: keep MCP JSON-RPC + lockfiles, or use smaller JSON-RPC-over-WS contract?
+  - Decision: keep local lockfile + JSON-RPC-lite over WebSocket; drop SSE and MCP as native protocol requirements.
+- [x] 3. Capability boundary: what is needed now vs future tools?
+  - Decision: v1 is events only: `selection`, `mention`, plus connection-level `hello`/`ping`; no IDE tool calls, no `activeFile`/`openFiles`.
+- [x] 4. Workspace/path model: exact workspace match only, ancestor match, multi-root, WSL?
+  - Decision: support multi-root as `workspaces: string[]`; agent matches cwd equal/descendant of any root; document path namespace as server-side absolute path.
+- [x] 5. Auth/staleness: token, PID, port probing, lock cleanup?
+  - Decision: token required; PID advisory, ignore lockfile if present and dead; no stale port probing in v1.
+- [x] 6. Message shape: named notifications vs one generic event envelope?
+  - Decision: one `event` notification with typed `type`; selection and mention share range/text shape.
+- [x] 7. Line/range semantics: zero-based wire vs one-based model/editor text?
+  - Decision: zero-based wire with VS Code/LSP-style `start` inclusive, `end` exclusive; pi converts to one-based UI/model refs.
+- [x] 8. Init lifecycle: MCP initialize/initialized vs explicit `hello`?
+  - Decision: explicit `hello` request/response with full Pi instance identity: `client { name, version, pid, mode }`, `session { id, name? }`, `connection { id, subscriptions }`, and `workspace`; IDE groups connections by session and routes events by subscriptions.
+- [x] 9. Extensibility: capabilities, schema versioning, unknown events?
+  - Decision: integer `protocol: 1`; no capabilities in v1; unknown event types ignored.
+- [x] 10. Docs outcome: add pi-native protocol doc and keep Claude Code protocol doc?
+  - Decision: add `PI_IDE_PROTOCOL.md` as canonical pi-native v1; keep `CC_IDE_PROTOCOL.md` as Claude Code compatibility/reference doc.
 
-## Next implementation sketch
+## Question tree: notebook execution through IDE
 
-- [x] Add selection-context config toggle in `/ide`, default on.
-- [x] Snapshot latest non-empty selection for initial idle interactive/RPC prompts only.
-- [x] Store hidden details-only selection marker, then project latest marker into user prompt in `context`.
-- [x] Format compact XML-ish `<ide file="..." lines="...">`; include raw `<selected>` only for 1-2 lines and <=2KB; no omission marker.
-- [x] Keep ambient hint via compact `<ide>` tag only; no tool mention.
-- [x] Normalize at-mention refs to 1-based lines.
-- [x] Hide footer selection when selection context disabled.
-- [x] Typecheck.
+- [x] 1. Connection topology: notebook extension opens its own IDE connection, or reuses lovely-ide connection?
+  - Decision: separate packages may open separate IDE connections. `hello.connection.subscriptions` tells IDE which selection/mention events each connection wants; IDE groups connections by `session.id`.
+- [ ] 2. Protocol scope: keep Pi IDE Protocol v1 events-only and add notebook requests in v2/separate namespace?
+  - Recommended: keep v1 stable; notebook execution is request/response namespace (`notebook/*`) layered on same connection after separate decision.
+- [x] 3. Target identity: how does IDE distinguish several Pi instances and feature users?
+  - Decision: `hello` includes `session { id, name? }` and `connection { id, subscriptions }`; IDE groups by session, routes events by connection subscriptions.
+- [ ] 4. Notebook address model: path+cell index, cell id, VS Code notebook URI, or content hash?
+  - Recommended: path + stable cell id when available, index as fallback.
+- [ ] 5. Execution result model: stream outputs, return final notebook, or rely on IDE saved file?
+  - Recommended: start with request returning final cell outputs/status; streaming optional later.
 
-## Debug raw IDE notifications
+## Candidate v1 shape
 
-- [x] Add persisted `/ide` toggle for raw IDE notification debug, default off.
-- [x] Surface raw incoming JSON-RPC notifications as display-only custom messages, capped at 4KB.
-- [x] Pretty-print and syntax-highlight debug JSON with Pi JSON highlighter.
-- [x] Strip debug messages from model context.
-- [x] Typecheck.
-
-## Next cleanup/refactor
-
-- [x] Add direct `typebox` dependency for runtime validation.
-- [x] Use TypeBox at JSON boundaries: config file, lockfile, WebSocket JSON-RPC params.
-- [x] Split config parsing/persistence into `ConfigState`.
-- [x] Split IDE Selection + turn snapshot lifecycle into `SelectionState`.
-- [x] Move `/ide` command UI into its own module.
-- [x] Keep WebSocket discovery/connect/reconnect in extension entrypoint.
+- Lockfile `~/.pi/ide/*.lock` preferred; optionally scan `~/.claude/ide/*.lock` for compatibility.
+- Lock JSON: `{ "protocol": "pi-ide", "version": 1, "port": 1234, "pid": 1234, "workspaces": ["/abs/project"], "ide": "VS Code", "token": "..." }`.
+- WS endpoint: `ws://127.0.0.1:<port>`; header `X-Pi-Ide-Authorization: <token>`.
+- Client sends JSON-RPC `hello` with full Pi instance identity and `connection.subscriptions`; server replies accepted protocol + IDE metadata.
+- Server sends JSON-RPC notifications:
+  - `{ "method": "event", "params": { "type": "selection", "file": "/abs/file", "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 1, "character": 0 } }, "text": "..." } }`
+  - `{ "method": "event", "params": { "type": "mention", "file": "/abs/file", "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 9, "character": 12 } }, "text": "..." } }`
