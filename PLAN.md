@@ -50,6 +50,14 @@
 - [x] Hide footer selection when selection context disabled.
 - [x] Typecheck.
 
+## Debug raw IDE notifications
+
+- [x] Add persisted `/ide` toggle for raw IDE notification debug, default off.
+- [x] Surface raw incoming JSON-RPC notifications as display-only custom messages, capped at 4KB.
+- [x] Pretty-print and syntax-highlight debug JSON with Pi JSON highlighter.
+- [x] Strip debug messages from model context.
+- [x] Typecheck.
+
 ## Next cleanup/refactor
 
 - [x] Add direct `typebox` dependency for runtime validation.

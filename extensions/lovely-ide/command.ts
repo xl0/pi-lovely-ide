@@ -24,10 +24,11 @@ interface IdeCommandDeps<TIde extends CommandIde> {
 const TOGGLE_LABELS: Record<ToggleKey, string> = {
 	autoConnectOnStartup: "Auto-connect on startup",
 	autoReconnect: "Auto-reconnect on loss",
-	selectionContext: "Selection context"
+	selectionContext: "Selection context",
+	debugNotifications: "Debug raw IDE notifications"
 }
 
-const TOGGLE_KEYS = new Set<ToggleKey>(["autoConnectOnStartup", "autoReconnect", "selectionContext"])
+const TOGGLE_KEYS = new Set<ToggleKey>(["autoConnectOnStartup", "autoReconnect", "selectionContext", "debugNotifications"])
 
 function isToggleItem(value: string): value is ToggleKey {
 	return TOGGLE_KEYS.has(value as ToggleKey)
@@ -39,7 +40,7 @@ function saveConfigBestEffort(config: ConfigState): void {
 
 export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, deps: IdeCommandDeps<TIde>): void {
 	pi.registerCommand("ide", {
-		description: "Connect to an IDE, toggle auto-connect/reconnect/selection context",
+		description: "Connect to an IDE, toggle auto-connect/reconnect/selection/debug notifications",
 		handler: async (_args, ctx) => {
 			const ides = await deps.discoverMatchingIdes(ctx.cwd)
 
@@ -58,7 +59,8 @@ export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, de
 				{ value: "Disconnect", label: "Disconnect" },
 				{ value: "autoConnectOnStartup", label: labelForToggle("autoConnectOnStartup") },
 				{ value: "autoReconnect", label: labelForToggle("autoReconnect") },
-				{ value: "selectionContext", label: labelForToggle("selectionContext") }
+				{ value: "selectionContext", label: labelForToggle("selectionContext") },
+				{ value: "debugNotifications", label: labelForToggle("debugNotifications") }
 			]
 
 			let initialIndex = items.length - 1

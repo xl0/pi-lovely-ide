@@ -2,7 +2,8 @@ import { readdir, readFile, realpath } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
+import { type ContextEvent, type ExtensionAPI, type ExtensionContext, highlightCode } from "@earendil-works/pi-coding-agent"
+import { Text } from "@earendil-works/pi-tui"
 import Type, { type Static } from "typebox"
 import { Compile } from "typebox/compile"
 import { registerIdeCommand } from "./command.js"
@@ -20,7 +21,9 @@ import {
 
 const IDE_LOCK_DIR = join(homedir(), ".claude", "ide")
 const STATUS_KEY = "lovely-ide"
+const DEBUG_NOTIFICATION_CUSTOM_TYPE = "lovely-ide.debugNotification"
 const RECONNECT_DELAY_MS = 1_000
+const DEBUG_NOTIFICATION_MAX_CHARS = 4_000
 
 const IdeLockFileSchema = Type.Object(
 	{
@@ -42,6 +45,13 @@ interface DiscoveredIde {
 	port: number
 	lock: IdeLockFile
 	projectDir: string
+}
+
+interface DebugNotificationDetails {
+	method: string
+	pretty: string
+	originalLength: number
+	truncated: boolean
 }
 
 function parseIdeLockFile(raw: string): IdeLockFile | undefined {
@@ -132,6 +142,40 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		return displayPathForCwd(currentCtx?.cwd, path)
 	}
 
+	function stripDebugNotificationMessages(messages: ContextEvent["messages"]): ContextEvent["messages"] | undefined {
+		let changed = false
+		const filtered = messages.filter(message => {
+			if (message.role === "custom" && message.customType === DEBUG_NOTIFICATION_CUSTOM_TYPE) {
+				changed = true
+				return false
+			}
+			return true
+		})
+		return changed ? filtered : undefined
+	}
+
+	function parseDebugNotificationDetails(value: unknown): DebugNotificationDetails | undefined {
+		if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
+		const record = value as { method?: unknown; pretty?: unknown; originalLength?: unknown; truncated?: unknown }
+		if (typeof record.method !== "string") return undefined
+		if (typeof record.pretty !== "string") return undefined
+		if (!Number.isInteger(record.originalLength)) return undefined
+		if (typeof record.truncated !== "boolean") return undefined
+		return {
+			method: record.method,
+			pretty: record.pretty,
+			originalLength: record.originalLength as number,
+			truncated: record.truncated
+		}
+	}
+
+	pi.registerMessageRenderer<DebugNotificationDetails>(DEBUG_NOTIFICATION_CUSTOM_TYPE, message => {
+		const details = parseDebugNotificationDetails(message.details)
+		if (!details) return undefined
+		const suffix = details.truncated ? `\n… (${details.originalLength} chars)` : ""
+		return new Text(`IDE raw ${details.method}:\n${highlightCode(details.pretty, "json").join("\n")}${suffix}`, 1, 0)
+	})
+
 	function updateStatus(): void {
 		if (!currentCtx) return
 		const th = currentCtx.ui.theme
@@ -150,7 +194,28 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} ${pid}${selectionText ? ` ${selectionText}` : ""}`)
 	}
 
-	function handleMessage(message: JsonRpcMessage, activeConnection: IdeConnection): void {
+	function debugNotifyRawIdeNotification(message: JsonRpcMessage, raw: string): void {
+		if (!config.debugNotifications) return
+		if (message.id != null || message.method == null) return
+		const pretty = JSON.stringify(JSON.parse(raw), null, "\t")
+		pi.sendMessage<DebugNotificationDetails>(
+			{
+				customType: DEBUG_NOTIFICATION_CUSTOM_TYPE,
+				content: "",
+				display: true,
+				details: {
+					method: message.method,
+					pretty: pretty.slice(0, DEBUG_NOTIFICATION_MAX_CHARS),
+					originalLength: pretty.length,
+					truncated: pretty.length > DEBUG_NOTIFICATION_MAX_CHARS
+				}
+			},
+			{ triggerTurn: false }
+		)
+	}
+
+	function handleMessage(message: JsonRpcMessage, raw: string, activeConnection: IdeConnection): void {
+		debugNotifyRawIdeNotification(message, raw)
 		if (message.id != null && message.method != null) {
 			// Minimal success response for IDE-initiated MCP requests such as ping.
 			activeConnection.send({ jsonrpc: "2.0", id: message.id, result: {} })
@@ -310,8 +375,10 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	})
 
 	pi.on("context", event => {
-		const messages = injectSelectionContext(event.messages, config.selectionContext, displayPath)
+		const displayMessages = stripDebugNotificationMessages(event.messages) ?? event.messages
+		const messages = injectSelectionContext(displayMessages, config.selectionContext, displayPath)
 		if (messages) return { messages }
+		if (displayMessages !== event.messages) return { messages: displayMessages }
 	})
 
 	pi.on("agent_end", () => {

@@ -9,7 +9,8 @@ const ConfigSchema = Type.Object(
 	{
 		autoConnectOnStartup: Type.Optional(Type.Boolean()),
 		autoReconnect: Type.Optional(Type.Boolean()),
-		selectionContext: Type.Optional(Type.Boolean())
+		selectionContext: Type.Optional(Type.Boolean()),
+		debugNotifications: Type.Optional(Type.Boolean())
 	},
 	{ additionalProperties: true }
 )
@@ -23,6 +24,7 @@ export class ConfigState {
 	autoConnectOnStartup = true
 	autoReconnect = true
 	selectionContext = true
+	debugNotifications = false
 
 	setProjectDir(projectDir: string): void {
 		this.#projectDir = projectDir
@@ -45,6 +47,7 @@ export class ConfigState {
 		if (parsed.autoConnectOnStartup !== undefined) this.autoConnectOnStartup = parsed.autoConnectOnStartup
 		if (parsed.autoReconnect !== undefined) this.autoReconnect = parsed.autoReconnect
 		if (parsed.selectionContext !== undefined) this.selectionContext = parsed.selectionContext
+		if (parsed.debugNotifications !== undefined) this.debugNotifications = parsed.debugNotifications
 	}
 
 	async save(): Promise<void> {
@@ -56,7 +59,8 @@ export class ConfigState {
 				{
 					autoConnectOnStartup: this.autoConnectOnStartup,
 					autoReconnect: this.autoReconnect,
-					selectionContext: this.selectionContext
+					selectionContext: this.selectionContext,
+					debugNotifications: this.debugNotifications
 				},
 				null,
 				"\t"

@@ -87,7 +87,7 @@ export interface IdeConnectionOptions {
 	port: number
 	authToken: string
 	requestId: number
-	onMessage(message: JsonRpcMessage, connection: IdeConnection): void
+	onMessage(message: JsonRpcMessage, raw: string, connection: IdeConnection): void
 	onClose(connection: IdeConnection): void
 }
 
@@ -115,7 +115,7 @@ export class IdeConnection {
 			const data = (event as unknown as { data: unknown }).data
 			const raw = typeof data === "string" ? data : String(data)
 			const msg = parseJsonRpcMessage(raw)
-			if (msg) this.options.onMessage(msg, this)
+			if (msg) this.options.onMessage(msg, raw, this)
 		})
 		socket.addEventListener("close", () => this.options.onClose(this))
 
