@@ -1,5 +1,5 @@
 {
-	"name": "pi-lovely-ide-vscode",
+	"name": "pi-lovely-ide",
 	"displayName": "Pi Lovely IDE",
 	"description": "Pi IDE Protocol bridge for VS Code",
 	"version": "0.1.0",
@@ -20,7 +20,7 @@
 	"activationEvents": [
 		"onStartupFinished"
 	],
-	"main": "./dist/ide-plugins/vscode/src/extension.js",
+	"main": "./dist/extension.js",
 	"contributes": {
 		"commands": [
 			{
@@ -37,19 +37,20 @@
 		]
 	},
 	"scripts": {
-		"compile": "tsc -p .",
-		"vscode:prepublish": "npm run compile",
+		"check-types": "tsc --noEmit -p .",
+		"compile": "npm run check-types && node esbuild.mjs",
+		"watch": "node esbuild.mjs --watch",
+		"vscode:prepublish": "npm run check-types && node esbuild.mjs --production",
 		"package": "vsce package"
-	},
-	"dependencies": {
-		"typebox": "^1.2.2",
-		"ws": "^8.18.0"
 	},
 	"devDependencies": {
 		"@types/node": "^20.0.0",
 		"@types/vscode": "^1.100.0",
 		"@types/ws": "^8.5.0",
 		"@vscode/vsce": "^3.0.0",
-		"typescript": "^5.5.0"
+		"esbuild": "^0.25.0",
+		"typebox": "^1.2.2",
+		"typescript": "^5.5.0",
+		"ws": "^8.18.0"
 	}
 }
