@@ -1,28 +1,19 @@
-import Type, { type Static } from "typebox"
-import { Compile } from "typebox/compile"
+import type { IdeEventParams, IdeRange } from "../../packages/protocol/src/index.js"
 import { lineRangeText } from "./selection.js"
 
-export const AtMentionSchema = Type.Object(
-	{
-		filePath: Type.String(),
-		lineStart: Type.Optional(Type.Integer({ minimum: 0 })),
-		lineEnd: Type.Optional(Type.Integer({ minimum: 0 }))
-	},
-	{ additionalProperties: true }
-)
-
-export type AtMention = Static<typeof AtMentionSchema>
-
-const AtMentionValidator = Compile(AtMentionSchema)
-
-export function parseAtMention(value: unknown): AtMention | undefined {
-	return AtMentionValidator.Check(value) ? value : undefined
+function displayLineEnd(range: IdeRange): number {
+	return range.end.line - (range.end.character === 0 ? 1 : 0)
 }
 
-export function formatAtMention(mention: AtMention, displayPath: (path: string) => string): string {
-	let ref = `@${displayPath(mention.filePath)}`
-	if (typeof mention.lineStart === "number" && typeof mention.lineEnd === "number") {
-		ref += `#${lineRangeText(mention.lineStart + 1, mention.lineEnd + 1)}`
+export function formatAtMention(event: IdeEventParams, displayPath: (path: string) => string): string | undefined {
+	if (!event.file) return undefined
+	let ref = `@${displayPath(event.file)}`
+	const span = event.spans.find(s => s.range)
+	if (!span?.range) return ref
+
+	const lineEnd = displayLineEnd(span.range)
+	if (lineEnd >= span.range.start.line) {
+		ref += `#${lineRangeText(span.range.start.line + 1, lineEnd + 1)}`
 	}
 	return ref
 }

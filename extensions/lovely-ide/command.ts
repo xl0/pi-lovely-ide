@@ -7,7 +7,7 @@ export interface CommandIde {
 	port: number
 	lock: {
 		pid?: number
-		ideName?: string
+		ide?: string
 	}
 }
 
@@ -25,10 +25,17 @@ const TOGGLE_LABELS: Record<ToggleKey, string> = {
 	autoConnectOnStartup: "Auto-connect on startup",
 	autoReconnect: "Auto-reconnect on loss",
 	selectionContext: "Selection context",
+	displaySelectionMessages: "Display selection messages",
 	debugNotifications: "Debug raw IDE notifications"
 }
 
-const TOGGLE_KEYS = new Set<ToggleKey>(["autoConnectOnStartup", "autoReconnect", "selectionContext", "debugNotifications"])
+const TOGGLE_KEYS = new Set<ToggleKey>([
+	"autoConnectOnStartup",
+	"autoReconnect",
+	"selectionContext",
+	"displaySelectionMessages",
+	"debugNotifications"
+])
 
 function isToggleItem(value: string): value is ToggleKey {
 	return TOGGLE_KEYS.has(value as ToggleKey)
@@ -40,7 +47,7 @@ function saveConfigBestEffort(config: ConfigState): void {
 
 export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, deps: IdeCommandDeps<TIde>): void {
 	pi.registerCommand("ide", {
-		description: "Connect to an IDE, toggle auto-connect/reconnect/selection/debug notifications",
+		description: "Connect to an IDE, toggle auto-connect/reconnect/selection/debug displays",
 		handler: async (_args, ctx) => {
 			const ides = await deps.discoverMatchingIdes(ctx.cwd)
 
@@ -51,7 +58,7 @@ export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, de
 			const connected = deps.connected()
 			const items: SelectItem[] = [
 				...ides.map((ide): SelectItem => {
-					const name = ide.lock.ideName ?? "IDE"
+					const name = ide.lock.ide ?? "IDE"
 					const pid = ide.lock.pid ?? "?"
 					const cur = connected?.port === ide.port ? " (current)" : ""
 					return { value: ide.port.toString(), label: `${name} ${pid}${cur}` }
@@ -60,6 +67,7 @@ export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, de
 				{ value: "autoConnectOnStartup", label: labelForToggle("autoConnectOnStartup") },
 				{ value: "autoReconnect", label: labelForToggle("autoReconnect") },
 				{ value: "selectionContext", label: labelForToggle("selectionContext") },
+				{ value: "displaySelectionMessages", label: labelForToggle("displaySelectionMessages") },
 				{ value: "debugNotifications", label: labelForToggle("debugNotifications") }
 			]
 

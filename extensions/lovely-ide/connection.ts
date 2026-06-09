@@ -1,92 +1,14 @@
-import Type, { type Static } from "typebox"
-import { Compile } from "typebox/compile"
 import { WebSocket } from "undici"
+import type { HelloParams, JsonRpcMessage } from "../../packages/protocol/src/index.js"
+import { HelloResultValidator, PI_IDE_AUTH_HEADER, parseJsonRpcMessage } from "../../packages/protocol/src/index.js"
 
 const CONNECT_TIMEOUT_MS = 3_000
 
-const JsonRpcMessageSchema = Type.Object(
-	{
-		jsonrpc: Type.Optional(Type.String()),
-		id: Type.Optional(Type.Union([Type.String(), Type.Number()])),
-		method: Type.Optional(Type.String()),
-		params: Type.Optional(Type.Unknown()),
-		result: Type.Optional(Type.Unknown()),
-		error: Type.Optional(Type.Unknown())
-	},
-	{ additionalProperties: true }
-)
-
-export type JsonRpcMessage = Static<typeof JsonRpcMessageSchema>
-
-const JsonRpcMessageValidator = Compile(JsonRpcMessageSchema)
-
-function parseJsonRpcMessage(raw: string): JsonRpcMessage | undefined {
-	let parsed: unknown
-	try {
-		parsed = JSON.parse(raw)
-	} catch {
-		return undefined
-	}
-	return JsonRpcMessageValidator.Check(parsed) ? parsed : undefined
-}
-
-function openAndInitialize(socket: WebSocket, requestId: number): Promise<void> {
-	return new Promise((resolve, reject) => {
-		let opened = false
-		const cleanup = () => {
-			clearTimeout(timer)
-			socket.removeEventListener("open", onOpen)
-			socket.removeEventListener("error", onError)
-			socket.removeEventListener("message", onMessage)
-		}
-		const fail = (err: Error) => {
-			cleanup()
-			reject(err)
-		}
-
-		const timer = setTimeout(() => fail(new Error(opened ? "initialize timed out" : "connect timed out")), CONNECT_TIMEOUT_MS)
-
-		const onOpen = () => {
-			opened = true
-			socket.send(
-				JSON.stringify({
-					jsonrpc: "2.0",
-					id: requestId,
-					method: "initialize",
-					params: {
-						protocolVersion: "2025-03-26",
-						capabilities: {},
-						clientInfo: { name: "pi-lovely-ide", version: "0.1.0" }
-					}
-				})
-			)
-		}
-
-		const onError = () => fail(new Error("websocket error"))
-
-		const onMessage = (event: Event) => {
-			const data = (event as unknown as { data: unknown }).data
-			const raw = typeof data === "string" ? data : String(data)
-			const msg = parseJsonRpcMessage(raw)
-			if (!msg) return
-
-			if (msg.id === requestId && msg.method == null) {
-				cleanup()
-				if (msg.error) reject(new Error(`initialize failed: ${JSON.stringify(msg.error)}`))
-				else resolve()
-			}
-		}
-
-		socket.addEventListener("open", onOpen)
-		socket.addEventListener("error", onError)
-		socket.addEventListener("message", onMessage)
-	})
-}
-
 export interface IdeConnectionOptions {
 	port: number
-	authToken: string
+	token: string
 	requestId: number
+	hello: HelloParams
 	onMessage(message: JsonRpcMessage, raw: string, connection: IdeConnection): void
 	onClose(connection: IdeConnection): void
 }
@@ -98,28 +20,93 @@ export class IdeConnection {
 
 	async connect(): Promise<void> {
 		const socket = new WebSocket(`ws://127.0.0.1:${this.options.port}`, {
-			protocols: ["mcp"],
-			headers: { "x-claude-code-ide-authorization": this.options.authToken }
+			headers: { [PI_IDE_AUTH_HEADER]: this.options.token }
 		})
 		this.socket = socket
 
+		let opened = false
+		let connected = false
+		let settled = false
+
+		const helloPromise = new Promise<void>((resolve, reject) => {
+			const cleanupHandshake = () => {
+				clearTimeout(timer)
+				socket.removeEventListener("open", onOpen)
+				socket.removeEventListener("error", onError)
+			}
+
+			const fail = (err: Error) => {
+				if (settled) return
+				settled = true
+				cleanupHandshake()
+				socket.removeEventListener("message", onMessage)
+				socket.removeEventListener("close", onClose)
+				reject(err)
+			}
+
+			const succeed = () => {
+				if (settled) return
+				settled = true
+				connected = true
+				cleanupHandshake()
+				resolve()
+			}
+
+			const timer = setTimeout(() => fail(new Error(opened ? "hello timed out" : "connect timed out")), CONNECT_TIMEOUT_MS)
+
+			const onOpen = () => {
+				opened = true
+				const message: JsonRpcMessage = { jsonrpc: "2.0", id: this.options.requestId, method: "hello", params: this.options.hello }
+				socket.send(JSON.stringify(message))
+			}
+
+			const onError = () => fail(new Error("websocket error"))
+
+			const onMessage = (event: Event) => {
+				const data = (event as unknown as { data: unknown }).data
+				const raw = typeof data === "string" ? data : String(data)
+				const msg = parseJsonRpcMessage(raw)
+				if (!msg) return
+
+				if (!connected) {
+					if (msg.id !== this.options.requestId || msg.method != null) return
+					if (msg.error) {
+						fail(new Error(`hello failed: ${JSON.stringify(msg.error)}`))
+						return
+					}
+					if (!HelloResultValidator.Check(msg.result)) {
+						fail(new Error(`hello failed: invalid result ${JSON.stringify(msg.result)}`))
+						return
+					}
+					succeed()
+					return
+				}
+
+				this.options.onMessage(msg, raw, this)
+			}
+
+			const onClose = () => {
+				if (this.socket === socket) this.socket = null
+				if (!connected) {
+					fail(new Error("websocket closed"))
+					return
+				}
+				this.options.onClose(this)
+			}
+
+			socket.addEventListener("open", onOpen)
+			socket.addEventListener("error", onError)
+			socket.addEventListener("message", onMessage)
+			socket.addEventListener("close", onClose)
+		})
+
 		try {
-			await openAndInitialize(socket, this.options.requestId)
+			await helloPromise
 		} catch (err) {
 			socket.close()
 			if (this.socket === socket) this.socket = null
 			throw err
 		}
-
-		socket.addEventListener("message", event => {
-			const data = (event as unknown as { data: unknown }).data
-			const raw = typeof data === "string" ? data : String(data)
-			const msg = parseJsonRpcMessage(raw)
-			if (msg) this.options.onMessage(msg, raw, this)
-		})
-		socket.addEventListener("close", () => this.options.onClose(this))
-
-		this.send({ jsonrpc: "2.0", method: "notifications/initialized" })
 	}
 
 	send(message: JsonRpcMessage): void {
