@@ -1,46 +1,14 @@
 import { Buffer } from "node:buffer"
 import { relative } from "node:path"
 import type { ContextEvent } from "@earendil-works/pi-coding-agent"
-import Type, { type Static } from "typebox"
-import { Compile } from "typebox/compile"
+import type { IdeEventParams, IdeSpan } from "../../packages/protocol/src/index.js"
 
 const MAX_SELECTED_TEXT_BYTES = 2 * 1024
 export const SELECTION_CONTEXT_CUSTOM_TYPE = "lovely-ide.selection"
 
-const PositionSchema = Type.Object(
-	{
-		line: Type.Integer({ minimum: 0 }),
-		character: Type.Integer({ minimum: 0 })
-	},
-	{ additionalProperties: true }
-)
-
-const SelectionRangeSchema = Type.Object(
-	{
-		start: PositionSchema,
-		end: PositionSchema,
-		isEmpty: Type.Optional(Type.Boolean())
-	},
-	{ additionalProperties: true }
-)
-
-export const IdeSelectionSchema = Type.Object(
-	{
-		selection: Type.Optional(Type.Union([SelectionRangeSchema, Type.Null()])),
-		text: Type.Optional(Type.String()),
-		filePath: Type.Optional(Type.String())
-	},
-	{ additionalProperties: true }
-)
-
-export type IdeSelection = Static<typeof IdeSelectionSchema>
-
-const IdeSelectionValidator = Compile(IdeSelectionSchema)
-
-export function parseIdeSelection(value: unknown): IdeSelection | undefined {
-	return IdeSelectionValidator.Check(value) ? value : undefined
+function rangedSpan(selection: IdeEventParams): IdeSpan | undefined {
+	return selection.spans.find(s => s.range)
 }
-
 export interface SelectionSnapshot {
 	filePath: string
 	lineStart: number
@@ -68,8 +36,8 @@ export function lineRangeText(lineStart: number, lineEnd: number): string {
 	return lineStart === lineEnd ? String(lineStart) : `${lineStart}-${lineEnd}`
 }
 
-function selectionLineRange(selection: IdeSelection): SelectionLineRange | undefined {
-	const range = selection.selection
+function selectionLineRange(selection: IdeEventParams): SelectionLineRange | undefined {
+	const range = rangedSpan(selection)?.range
 	if (!range) return undefined
 
 	const endLineZeroBased = range.end.line - (range.end.character === 0 ? 1 : 0)
@@ -79,7 +47,7 @@ function selectionLineRange(selection: IdeSelection): SelectionLineRange | undef
 	return { lineStart, lineEnd, lineCount: lineEnd - lineStart + 1 }
 }
 
-function parseSnapshot(value: unknown): SelectionSnapshot | undefined {
+export function parseSelectionSnapshot(value: unknown): SelectionSnapshot | undefined {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
 	const record = value as { filePath?: unknown; lineStart?: unknown; lineEnd?: unknown; text?: unknown }
 	if (typeof record.filePath !== "string") return undefined
@@ -103,7 +71,7 @@ function appendContextToContent(content: ContextUserMessage["content"], context:
 	return [...content, { type: "text", text: suffix }]
 }
 
-function formatSelectionContext(snapshot: SelectionSnapshot, displayPath: (path: string) => string): string {
+export function formatSelectionContext(snapshot: SelectionSnapshot, displayPath: (path: string) => string): string {
 	const file = displayPath(snapshot.filePath)
 	const lines = lineRangeText(snapshot.lineStart, snapshot.lineEnd)
 	if (snapshot.text !== undefined) {
@@ -134,7 +102,7 @@ export function injectSelectionContext(
 		if (!message) continue
 		if (isSelectionContextMessage(message)) {
 			if (enabled && i === lastMarkerIndex) {
-				snapshot = parseSnapshot(message.details)
+				snapshot = parseSelectionSnapshot(message.details)
 				for (let j = patched.length - 1; j >= 0; j--) {
 					if (patched[j]?.role === "user") {
 						targetUserIndex = j
@@ -158,12 +126,12 @@ export function injectSelectionContext(
 }
 
 export class SelectionState {
-	#current: IdeSelection | null = null
+	#current: IdeEventParams | null = null
 
 	constructor(private readonly displayPath: (path: string) => string) {}
 
-	setCurrent(selection: IdeSelection): void {
-		this.#current = selection.filePath && selection.selection?.isEmpty !== true && selectionLineRange(selection) ? selection : null
+	setCurrent(selection: IdeEventParams): void {
+		this.#current = selection.file && selectionLineRange(selection) ? selection : null
 	}
 
 	clearCurrent(): void {
@@ -171,30 +139,31 @@ export class SelectionState {
 	}
 
 	snapshotCurrent(): SelectionSnapshot | null {
-		if (!this.#current?.filePath) return null
+		if (!this.#current?.file) return null
 		const range = selectionLineRange(this.#current)
+		const span = rangedSpan(this.#current)
 		if (!range) return null
 
 		const snapshot: SelectionSnapshot = {
-			filePath: this.#current.filePath,
+			filePath: this.#current.file,
 			lineStart: range.lineStart,
 			lineEnd: range.lineEnd
 		}
 		if (
 			range.lineCount <= 2 &&
-			typeof this.#current.text === "string" &&
-			this.#current.text.length > 0 &&
-			Buffer.byteLength(this.#current.text, "utf8") <= MAX_SELECTED_TEXT_BYTES
+			typeof span?.text === "string" &&
+			span.text.length > 0 &&
+			Buffer.byteLength(span.text, "utf8") <= MAX_SELECTED_TEXT_BYTES
 		) {
-			snapshot.text = this.#current.text
+			snapshot.text = span.text
 		}
 		return snapshot
 	}
 
 	describeCurrent(): string | undefined {
-		if (!this.#current?.filePath) return undefined
+		if (!this.#current?.file) return undefined
 		const range = selectionLineRange(this.#current)
 		if (!range) return undefined
-		return `${this.displayPath(this.#current.filePath)}#${lineRangeText(range.lineStart, range.lineEnd)}`
+		return `${this.displayPath(this.#current.file)}#${lineRangeText(range.lineStart, range.lineEnd)}`
 	}
 }

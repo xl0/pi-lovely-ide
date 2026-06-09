@@ -24,9 +24,9 @@ _Avoid_: selection context, ambient context
 The pi-native local IDE protocol for editor-originated context events such as selection and mentions. It is not Claude MCP compatibility.
 _Avoid_: Claude IDE protocol, MCP protocol
 
-**Claude Compatibility Adapter**:
-Support for consuming Claude-style IDE lockfiles/messages at the edge while preserving the Pi IDE Protocol as the canonical contract.
-_Avoid_: core protocol, native protocol
+**Claude Code Protocol Reference**:
+Historical documentation of Claude Code-compatible MCP lockfiles/messages kept for reference while implementation moves to the Pi IDE Protocol.
+_Avoid_: native protocol, active adapter
 
 **Pi Instance**:
 One Pi process/session in a workspace, identified to the IDE by process PID plus session id/name from Pi's session manager. A Pi Instance may have multiple IDE connections.
@@ -35,6 +35,14 @@ _Avoid_: workspace, IDE server
 **IDE Connection Subscription**:
 The event types a specific Pi IDE WebSocket connection asks the IDE to send, currently `selection` and `mention`.
 _Avoid_: capability, tool permission, purpose
+
+**IDE Span**:
+One selected or mentioned span in a Pi IDE Protocol event. It may be a text range in a file, a text range inside a notebook cell, or a whole notebook cell.
+_Avoid_: event, connection, serialized notebook range
+
+**Notebook Cell Address**:
+Optional cell identity on an IDE Span for notebook files, using zero-based cell index and/or IDE-provided cell id. Ranges inside a notebook cell are relative to cell text, not serialized `.ipynb` JSON.
+_Avoid_: file line in notebook JSON
 
 ## Relationships
 

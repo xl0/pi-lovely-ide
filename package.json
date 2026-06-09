@@ -1,6 +1,6 @@
 {
 	"name": "@xl0/pi-lovely-ide",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"keywords": [
 		"pi-package",
 		"vscode",
@@ -16,6 +16,7 @@
 	},
 	"files": [
 		"extensions/",
+		"packages/",
 		"README.md",
 		"LICENSE"
 	],

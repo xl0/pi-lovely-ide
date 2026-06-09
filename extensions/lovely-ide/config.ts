@@ -10,6 +10,7 @@ const ConfigSchema = Type.Object(
 		autoConnectOnStartup: Type.Optional(Type.Boolean()),
 		autoReconnect: Type.Optional(Type.Boolean()),
 		selectionContext: Type.Optional(Type.Boolean()),
+		displaySelectionMessages: Type.Optional(Type.Boolean()),
 		debugNotifications: Type.Optional(Type.Boolean())
 	},
 	{ additionalProperties: true }
@@ -24,6 +25,7 @@ export class ConfigState {
 	autoConnectOnStartup = true
 	autoReconnect = true
 	selectionContext = true
+	displaySelectionMessages = false
 	debugNotifications = false
 
 	setProjectDir(projectDir: string): void {
@@ -47,6 +49,7 @@ export class ConfigState {
 		if (parsed.autoConnectOnStartup !== undefined) this.autoConnectOnStartup = parsed.autoConnectOnStartup
 		if (parsed.autoReconnect !== undefined) this.autoReconnect = parsed.autoReconnect
 		if (parsed.selectionContext !== undefined) this.selectionContext = parsed.selectionContext
+		if (parsed.displaySelectionMessages !== undefined) this.displaySelectionMessages = parsed.displaySelectionMessages
 		if (parsed.debugNotifications !== undefined) this.debugNotifications = parsed.debugNotifications
 	}
 
@@ -60,6 +63,7 @@ export class ConfigState {
 					autoConnectOnStartup: this.autoConnectOnStartup,
 					autoReconnect: this.autoReconnect,
 					selectionContext: this.selectionContext,
+					displaySelectionMessages: this.displaySelectionMessages,
 					debugNotifications: this.debugNotifications
 				},
 				null,

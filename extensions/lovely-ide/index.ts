@@ -1,50 +1,45 @@
+import { randomUUID } from "node:crypto"
 import { readdir, readFile, realpath } from "node:fs/promises"
-import { homedir } from "node:os"
-import { join } from "node:path"
+import { createRequire } from "node:module"
+import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
-import { type ContextEvent, type ExtensionAPI, type ExtensionContext, highlightCode } from "@earendil-works/pi-coding-agent"
+import { type ContextEvent, type ExtensionAPI, type ExtensionContext, getAgentDir, highlightCode } from "@earendil-works/pi-coding-agent"
 import { Text } from "@earendil-works/pi-tui"
-import Type, { type Static } from "typebox"
-import { Compile } from "typebox/compile"
+import {
+	type HelloParams,
+	type IdeLockFile,
+	type JsonRpcMessage,
+	PI_IDE_PROTOCOL_VERSION,
+	parseIdeJsonRpcMessage,
+	parseIdeLockFile
+} from "../../packages/protocol/src/index.js"
 import { registerIdeCommand } from "./command.js"
 import { ConfigState } from "./config.js"
-import { IdeConnection, type JsonRpcMessage } from "./connection.js"
-import { formatAtMention, parseAtMention } from "./mention.js"
+import { IdeConnection } from "./connection.js"
+import { formatAtMention } from "./mention.js"
 import {
 	displayPathForCwd,
+	formatSelectionContext,
 	injectSelectionContext,
-	parseIdeSelection,
+	parseSelectionSnapshot,
 	SELECTION_CONTEXT_CUSTOM_TYPE,
 	type SelectionSnapshot,
 	SelectionState
 } from "./selection.js"
 
-const IDE_LOCK_DIR = join(homedir(), ".claude", "ide")
+const require = createRequire(import.meta.url)
+const packageJson = require("../../package.json") as { version?: string }
+const PACKAGE_VERSION = packageJson.version ?? "0.0.0"
+
+const IDE_LOCK_DIR = join(dirname(getAgentDir()), "ide")
 const STATUS_KEY = "lovely-ide"
 const DEBUG_NOTIFICATION_CUSTOM_TYPE = "lovely-ide.debugNotification"
 const RECONNECT_DELAY_MS = 1_000
 const DEBUG_NOTIFICATION_MAX_CHARS = 4_000
 
-const IdeLockFileSchema = Type.Object(
-	{
-		pid: Type.Optional(Type.Integer({ minimum: 1 })),
-		workspaceFolders: Type.Optional(Type.Array(Type.String())),
-		ideName: Type.Optional(Type.String()),
-		transport: Type.Optional(Type.String()),
-		runningInWindows: Type.Optional(Type.Boolean()),
-		authToken: Type.Optional(Type.String())
-	},
-	{ additionalProperties: true }
-)
-
-type IdeLockFile = Static<typeof IdeLockFileSchema>
-
-const IdeLockFileValidator = Compile(IdeLockFileSchema)
-
 interface DiscoveredIde {
 	port: number
 	lock: IdeLockFile
-	projectDir: string
 }
 
 interface DebugNotificationDetails {
@@ -52,16 +47,6 @@ interface DebugNotificationDetails {
 	pretty: string
 	originalLength: number
 	truncated: boolean
-}
-
-function parseIdeLockFile(raw: string): IdeLockFile | undefined {
-	let parsed: unknown
-	try {
-		parsed = JSON.parse(raw)
-	} catch {
-		return undefined
-	}
-	return IdeLockFileValidator.Check(parsed) ? parsed : undefined
 }
 
 export default function lovelyIdeExtension(pi: ExtensionAPI) {
@@ -100,6 +85,33 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		return canonicalPath(path)
 	}
 
+	function isEqualOrDescendant(path: string, root: string): boolean {
+		const rel = relative(root, path)
+		return rel === "" || (!!rel && !rel.startsWith("..") && !rel.startsWith("/"))
+	}
+
+	function helloParams(ctx: ExtensionContext): HelloParams {
+		const sessionName = ctx.sessionManager.getSessionName()
+		return {
+			version: PI_IDE_PROTOCOL_VERSION,
+			client: {
+				name: "pi-lovely-ide",
+				version: PACKAGE_VERSION,
+				pid: process.pid,
+				mode: ctx.mode
+			},
+			session: {
+				id: ctx.sessionManager.getSessionId(),
+				...(sessionName ? { name: sessionName } : {})
+			},
+			connection: {
+				id: randomUUID(),
+				subscriptions: ["selection", "mention"]
+			},
+			workspace: ctx.cwd
+		}
+	}
+
 	async function discoverMatchingIdes(cwd: string): Promise<DiscoveredIde[]> {
 		const projectDir = await canonicalPath(cwd)
 		let files: string[]
@@ -119,14 +131,12 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 			try {
 				const lock = parseIdeLockFile(await readFile(join(IDE_LOCK_DIR, file), "utf8"))
 				if (!lock) continue
-				if (lock.transport !== "ws") continue
-				if (!lock.authToken) continue
-				if (!isPidAlive(lock.pid)) continue
+				if (lock.port !== port) continue
+				if (lock.pid && !isPidAlive(lock.pid)) continue
 
-				const workspaceFolders = lock.workspaceFolders ?? []
-				for (const folder of workspaceFolders) {
-					if ((await normalizeWorkspaceFolder(folder)) === projectDir) {
-						ides.push({ port, lock, projectDir })
+				for (const folder of lock.workspaces) {
+					if (isEqualOrDescendant(projectDir, await normalizeWorkspaceFolder(folder))) {
+						ides.push({ port, lock })
 						break
 					}
 				}
@@ -176,6 +186,12 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		return new Text(`IDE raw ${details.method}:\n${highlightCode(details.pretty, "json").join("\n")}${suffix}`, 1, 0)
 	})
 
+	pi.registerMessageRenderer<SelectionSnapshot>(SELECTION_CONTEXT_CUSTOM_TYPE, message => {
+		const snapshot = parseSelectionSnapshot(message.details)
+		if (!snapshot) return undefined
+		return new Text(`IDE selection context:\n${formatSelectionContext(snapshot, displayPath)}`, 1, 0)
+	})
+
 	function updateStatus(): void {
 		if (!currentCtx) return
 		const th = currentCtx.ui.theme
@@ -188,7 +204,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 			return
 		}
 
-		const ide = connected.lock.ideName ?? "IDE"
+		const ide = connected.lock.ide ?? "IDE"
 		const pid = connected.lock.pid ?? "?"
 		const selectionText = config.selectionContext ? selection.describeCurrent() : undefined
 		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} ${pid}${selectionText ? ` ${selectionText}` : ""}`)
@@ -217,23 +233,23 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	function handleMessage(message: JsonRpcMessage, raw: string, activeConnection: IdeConnection): void {
 		debugNotifyRawIdeNotification(message, raw)
 		if (message.id != null && message.method != null) {
-			// Minimal success response for IDE-initiated MCP requests such as ping.
 			activeConnection.send({ jsonrpc: "2.0", id: message.id, result: {} })
 			return
 		}
 
-		if (message.method === "selection_changed") {
-			const params = parseIdeSelection(message.params ?? {})
-			if (!params) return
-			selection.setCurrent(params)
+		const parsed = parseIdeJsonRpcMessage(message)
+		if (parsed.kind !== "event") return
+
+		if (parsed.type === "selection") {
+			selection.setCurrent(parsed.params)
 			updateStatus()
 			return
 		}
 
-		if (message.method === "at_mentioned") {
-			const mention = parseAtMention(message.params)
+		if (parsed.type === "mention") {
+			const mention = formatAtMention(parsed.params, displayPath)
 			if (!mention || !currentCtx) return
-			currentCtx.ui.pasteToEditor(`${formatAtMention(mention, displayPath)} `)
+			currentCtx.ui.pasteToEditor(`${mention} `)
 			updateStatus()
 		}
 	}
@@ -255,12 +271,13 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	}
 
 	async function connectToIde(ide: DiscoveredIde): Promise<void> {
-		if (!ide.lock.authToken || connecting) return
+		if (connecting || !currentCtx) return
 		connecting = true
 		const newConnection = new IdeConnection({
 			port: ide.port,
-			authToken: ide.lock.authToken,
+			token: ide.lock.token,
 			requestId: nextRequestId++,
+			hello: helloParams(currentCtx),
 			onMessage: handleMessage,
 			onClose(closedConnection) {
 				if (connection === closedConnection) {
@@ -367,7 +384,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 				message: {
 					customType: SELECTION_CONTEXT_CUSTOM_TYPE,
 					content: "",
-					display: false,
+					display: config.displaySelectionMessages,
 					details: snapshot
 				}
 			}
