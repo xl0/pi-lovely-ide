@@ -17,8 +17,8 @@
 
 ## Decisions: VS Code IDE plugin
 
-- [x] Plugin lives in this repo under `ide-plugins/vscode`.
-- [x] Plugin has its own VS Code subpackage: `package.json`, `tsconfig.json`, `src/extension.ts`, VSIX packaging scripts, and root `dev-install-vscode-plugin.sh [ide-cli]` helper.
+- [x] Plugin lives in this repo under `ide-plugins/vscode`; Marketplace extension ID intended as `xl0.pi-lovely-ide`.
+- [x] Plugin has its own VS Code subpackage: `package.json`, `tsconfig.json`, `src/extension.ts`, esbuild-bundled VSIX packaging scripts, and root `dev-install-vscode-plugin.sh [ide-cli]` helper.
 - [x] Protocol code lives in shared package/module, intended for Pi extension, VS Code plugin, and future notebook package.
 - [x] One WebSocket server per VS Code extension host/window; lockfile lists current workspace folders and updates on workspace changes.
 - [x] Lockfile name is `<port>.lock`.

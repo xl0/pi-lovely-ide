@@ -9,9 +9,7 @@
 		"exactOptionalPropertyTypes": true,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,
-		"skipLibCheck": true,
-		"rootDir": "../..",
-		"outDir": "dist"
+		"skipLibCheck": true
 	},
 	"include": ["src/**/*.ts", "../../packages/protocol/src/**/*.ts"]
 }
