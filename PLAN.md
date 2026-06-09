@@ -22,7 +22,7 @@
 - [x] Protocol code lives in shared package/module, intended for Pi extension, VS Code plugin, and future notebook package.
 - [x] One WebSocket server per VS Code extension host/window; lockfile lists current workspace folders and updates on workspace changes.
 - [x] Lockfile name is `<port>.lock`.
-- [x] `Pi: Mention Selection` command sends current selection/cell spans. If multiple eligible Pi targets, use QuickPick by session name/id/pid; if one, send directly.
+- [x] `Pi: Mention Selection` command sends current selection/cell spans and has default `Alt+Shift+L` keybinding. If multiple eligible Pi targets, use QuickPick by session name/id/pid; if one, send directly.
 - [x] Store Pi connection metadata from `hello`; broadcast changed non-empty `selection` to subscribed conns; send `mention` to chosen subscribed conn.
 
 ## Follow-ups deferred

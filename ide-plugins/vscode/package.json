@@ -27,6 +27,13 @@
 				"command": "pi-lovely-ide.mentionSelection",
 				"title": "Pi: Mention Selection"
 			}
+		],
+		"keybindings": [
+			{
+				"command": "pi-lovely-ide.mentionSelection",
+				"key": "alt+shift+l",
+				"when": "editorTextFocus || notebookEditorFocused"
+			}
 		]
 	},
 	"scripts": {
