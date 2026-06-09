@@ -9,10 +9,10 @@ rmSync("dist", { recursive: true, force: true })
 const context = await esbuild.context({
 	entryPoints: ["src/extension.ts"],
 	bundle: true,
-	format: "esm",
+	format: "cjs",
 	platform: "node",
 	target: "es2022",
-	outfile: "dist/extension.js",
+	outfile: "dist/extension.cjs",
 	external: ["vscode"],
 	minify: production,
 	sourcemap: !production,
