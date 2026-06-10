@@ -58,6 +58,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let connectingConnection: IdeConnection | null = null
 	let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 	let pendingSelection: SelectionSnapshot | null | undefined
+	let selectionPreviewRefresh: (() => void) | null = null
 
 	const config = new ConfigState()
 	const selection = new SelectionState(displayPath)
@@ -189,7 +190,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	pi.registerMessageRenderer<SelectionSnapshot>(SELECTION_CONTEXT_CUSTOM_TYPE, message => {
 		const snapshot = parseSelectionSnapshot(message.details)
 		if (!snapshot) return undefined
-		return new Text(`IDE selection context:\n${formatSelectionContext(snapshot, displayPath)}`, 1, 0)
+		return new Text(`IDE selection context:\n${formatSelectionContext(snapshot, displayPath, config.selectedTextLineLimit)}`, 1, 0)
 	})
 
 	function updateStatus(): void {
@@ -206,7 +207,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 		const ide = connected.lock.ide ?? "IDE"
 		const pid = connected.lock.pid ?? "?"
-		const selectionText = config.selectionContext ? selection.describeCurrent() : undefined
+		const selectionText = selection.describeCurrent()
 		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} ${pid}${selectionText ? ` ${selectionText}` : ""}`)
 	}
 
@@ -243,6 +244,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		if (parsed.type === "selection") {
 			selection.setCurrent(parsed.params)
 			updateStatus()
+			selectionPreviewRefresh?.()
 			return
 		}
 
@@ -358,7 +360,11 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		connect: connectFromCommand,
 		disconnect,
 		updateStatus,
-		scheduleReconnect
+		scheduleReconnect,
+		selectionSnapshot: () => selection.snapshotCurrent(),
+		setSelectionPreviewRefresh: refresh => {
+			selectionPreviewRefresh = refresh
+		}
 	})
 
 	pi.on("input", (event, ctx) => {
@@ -393,7 +399,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	pi.on("context", event => {
 		const displayMessages = stripDebugNotificationMessages(event.messages) ?? event.messages
-		const messages = injectSelectionContext(displayMessages, config.selectionContext, displayPath)
+		const messages = injectSelectionContext(displayMessages, config.selectionContext, displayPath, config.selectedTextLineLimit)
 		if (messages) return { messages }
 		if (displayMessages !== event.messages) return { messages: displayMessages }
 	})
