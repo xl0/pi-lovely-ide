@@ -27,13 +27,28 @@
 
 ## Follow-ups deferred
 
-- [ ] Notebook selection/mention UX: current protocol shape permits cell spans, but Pi display/context still only uses ranged file spans. Finish after notebook execution model lands.
+- [ ] Notebook selection/mention UX: VS Code now sends cell-relative text ranges for active notebook cell text selections, whole-cell spans for notebook cell selections/mention, and keeps notebook selections stable across scroll-driven active-editor churn; Pi display/context still treats ranges as file line refs and does not render cell addresses. Finish after notebook execution model lands.
 
 ## Notebook follow-up decisions still open
 
 - [ ] Notebook execution protocol namespace (`notebook/*`) and whether it belongs in v2 or separate doc.
 - [ ] Notebook execution address model beyond selection/mention spans: path + stable cell id + index fallback is likely.
 - [ ] Notebook execution result model: return final cell outputs/status first; streaming optional later.
+
+## Design grill: VS Code selection event simplification
+
+Question tree:
+
+- [x] Semantics: IDE Selection is driven by explicit VS Code selection events, not active editor state. Active editor/tab/visible-range changes do nothing.
+- [x] Empty/cursor selections: publish same-position range spans; active editor changes alone do nothing.
+- [x] Event sources: keep only text-editor selection listener for ambient selection; notebook-editor selection events are ignored.
+- [x] Event payload source: build payload directly from selection event object, not ambient active editor state.
+- [x] Notebook behavior: do not use notebook cell-selection events for ambient selection for now. React only to `onDidChangeTextEditorSelection`; for notebook-cell text docs, find owning notebook cell by document/URI.
+- [x] Active filtering: do not filter; publish selection events from the VS Code event object regardless of active editor for now.
+- [x] Connection hello: do not send current/cached selection; wait for next selection event.
+- [x] Dedupe/cache: keep only per-socket `lastSelectionKeys`; remove retained/cached last selection event.
+- [x] Clear affordance: no explicit command/protocol affordance for now; cursor movement updates IDE Selection instead of clearing.
+- [x] Verification: VS Code plugin typecheck passes.
 
 ## Implementation plan
 
@@ -48,8 +63,9 @@
   - [x] Opportunistically remove safe stale `pi-ide` lockfiles before writing.
   - [x] Validate WS auth header before registering connection.
   - [x] Implement `hello`, store connection metadata, group by session, support `ping`.
-  - [x] Observe active editor/text selection changes and publish changed non-empty `selection` spans to subscribed conns regardless of file workspace; send empty events per connection to clear stale selection when needed; truncate span text payloads.
-  - [x] Support notebook spans: whole selected cells where VS Code exposes them.
+  - [x] Add VS Code `Pi Lovely IDE` log output channel for server/lockfile/connection state plus all listened VS Code events and outgoing protocol summaries at debug without raw selected text.
+  - [x] Observe text selection events and publish selected ranges/cursor positions to subscribed conns regardless of file workspace; truncate span text payloads.
+  - [x] Support notebook spans: notebook cell text selections as `cell + range`; ambient notebook cell-selection events are ignored.
   - [x] Implement `Pi: Mention Selection` command and target QuickPick.
 - [x] Update Pi extension to native Pi IDE Protocol.
   - [x] Discover `~/.pi/ide/*.lock`; remove Claude Code discovery/MCP initialize path.
