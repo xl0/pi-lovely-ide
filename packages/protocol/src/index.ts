@@ -71,7 +71,8 @@ export const SpanSchema = Type.Object(
 	{
 		cell: Type.Optional(CellAddressSchema),
 		range: Type.Optional(RangeSchema),
-		text: Type.Optional(Type.String())
+		text: Type.Optional(Type.String()),
+		textTotalCharacters: Type.Optional(Type.Integer({ minimum: 0 }))
 	},
 	{ additionalProperties: true }
 )

@@ -168,7 +168,8 @@ Unknown `params.type` values must be ignored. The IDE should only send an event 
         "start": { "line": 10, "character": 2 },
         "end": { "line": 12, "character": 0 }
       },
-      "text": "optional selected text"
+      "text": "optional selected text",
+      "textTotalCharacters": 22
     }
   ]
 }
@@ -190,14 +191,16 @@ Notebook example:
         "start": { "line": 1, "character": 0 },
         "end": { "line": 2, "character": 5 }
       },
-      "text": "optional selected text"
+      "text": "optional selected text",
+      "textTotalCharacters": 22
     },
     {
       "cell": {
         "index": 4,
         "id": "def456"
       },
-      "text": "optional full cell text"
+      "text": "optional full cell text",
+      "textTotalCharacters": 23
     }
   ]
 }
@@ -211,7 +214,8 @@ Fields:
 - `span.range?: { start, end }` — zero-based editor range. When `span.cell` is present, range positions are relative to the cell text, not the serialized notebook file. Missing `range` with `cell` means the whole cell.
 - `span.range.start` — inclusive start position.
 - `span.range.end` — exclusive end position.
-- `span.text?: string` — selected/referenced text when cheaply available. Senders may truncate large text and should mark truncation in the string.
+- `span.text?: string` — selected/referenced text when cheaply available. Senders may truncate large text.
+- `span.textTotalCharacters?: number` — total character count of selected/referenced text before sender truncation. When greater than `span.text.length`, receiver may render a truncation marker.
 
 For line-only display, if `span.range.end.character === 0`, the final selected line is `span.range.end.line - 1`.
 
@@ -234,7 +238,8 @@ Ambient active editor selection changed. IDEs may send this to all connected Pi 
           "start": { "line": 10, "character": 2 },
           "end": { "line": 12, "character": 0 }
         },
-        "text": "const x = 1;\nconst y = 2;\n"
+        "text": "const x = 1;\nconst y = 2;\n",
+        "textTotalCharacters": 26
       }
     ]
   }
@@ -272,7 +277,8 @@ Explicit user action from the IDE to insert/send a file/range reference to one P
           "start": { "line": 10, "character": 2 },
           "end": { "line": 12, "character": 8 }
         },
-        "text": "selected text"
+        "text": "selected text",
+        "textTotalCharacters": 13
       }
     ]
   }

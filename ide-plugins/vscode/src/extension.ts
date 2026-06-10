@@ -30,14 +30,13 @@ let logChannel: vscode.LogOutputChannel | undefined
 const connections = new Map<WebSocket, PiConnection>()
 const lastSelectionKeys = new Map<WebSocket, string>()
 const MAX_SPAN_TEXT_CHARS = 2 * 1024
-const TRUNCATED_TEXT_SUFFIX = "\n… [truncated]"
 
 function spanSummary(span: IdeSpan): string {
 	const cell = span.cell ? ` cell=${span.cell.index ?? "?"}${span.cell.id ? `:${span.cell.id}` : ""}` : ""
 	const range = span.range
 		? ` range=${span.range.start.line}:${span.range.start.character}-${span.range.end.line}:${span.range.end.character}`
 		: " range=whole"
-	const text = typeof span.text === "string" ? ` text=${span.text.length}` : ""
+	const text = typeof span.text === "string" ? ` text=${span.text.length}/${span.textTotalCharacters ?? span.text.length}` : ""
 	return `${cell}${range}${text}`.trim()
 }
 
@@ -130,20 +129,19 @@ function subscriptions(conn: PiConnection): Set<string> {
 	return new Set(conn.hello.connection.subscriptions ?? [])
 }
 
-function maybeText(text: string): Pick<IdeSpan, "text"> {
-	return text.length > 0 ? { text } : {}
+function maybeText(text: string, textTotalCharacters: number): Pick<IdeSpan, "text" | "textTotalCharacters"> {
+	return text.length > 0 ? { text, textTotalCharacters } : {}
 }
 
-function textForRange(document: vscode.TextDocument, range: vscode.Range): Pick<IdeSpan, "text"> {
+function textForRange(document: vscode.TextDocument, range: vscode.Range): Pick<IdeSpan, "text" | "textTotalCharacters"> {
 	const start = document.offsetAt(range.start)
 	const end = document.offsetAt(range.end)
 	if (end <= start) return {}
 
-	const truncated = end - start > MAX_SPAN_TEXT_CHARS
-	const limit = MAX_SPAN_TEXT_CHARS - (truncated ? TRUNCATED_TEXT_SUFFIX.length : 0)
-	const prefixEnd = document.positionAt(Math.min(end, start + limit))
+	const totalCharacters = end - start
+	const prefixEnd = document.positionAt(Math.min(end, start + MAX_SPAN_TEXT_CHARS))
 	const text = document.getText(new vscode.Range(range.start, prefixEnd))
-	return maybeText(truncated ? `${text}${TRUNCATED_TEXT_SUFFIX}` : text)
+	return maybeText(text, totalCharacters)
 }
 
 function fullDocumentRange(document: vscode.TextDocument): vscode.Range {
@@ -200,7 +198,11 @@ function eventForTextEditorSelection(event: vscode.TextEditorSelectionChangeEven
 			spans: spansForSelections(cell.document, event.selections).map(span => ({ cell: cellAddress(cell), ...span }))
 		}
 	}
-	return { type: "selection", file: event.textEditor.document.uri.fsPath, spans: spansForSelections(event.textEditor.document, event.selections) }
+	return {
+		type: "selection",
+		file: event.textEditor.document.uri.fsPath,
+		spans: spansForSelections(event.textEditor.document, event.selections)
+	}
 }
 
 function eventForNotebookCellEditor(editor: vscode.TextEditor | undefined, type: "selection" | "mention"): IdeEventParams | undefined {
