@@ -2,7 +2,8 @@ import type { IdeEventParams, IdeRange } from "../../packages/protocol/src/index
 import { lineRangeText } from "./selection.js"
 
 function displayLineEnd(range: IdeRange): number {
-	return range.end.line - (range.end.character === 0 ? 1 : 0)
+	const isCursor = range.start.line === range.end.line && range.start.character === range.end.character
+	return range.end.line - (!isCursor && range.end.character === 0 ? 1 : 0)
 }
 
 export function formatAtMention(event: IdeEventParams, displayPath: (path: string) => string): string | undefined {

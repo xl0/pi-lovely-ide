@@ -40,7 +40,8 @@ function selectionLineRange(selection: IdeEventParams): SelectionLineRange | und
 	const range = rangedSpan(selection)?.range
 	if (!range) return undefined
 
-	const endLineZeroBased = range.end.line - (range.end.character === 0 ? 1 : 0)
+	const isCursor = range.start.line === range.end.line && range.start.character === range.end.character
+	const endLineZeroBased = range.end.line - (!isCursor && range.end.character === 0 ? 1 : 0)
 	const lineStart = range.start.line + 1
 	const lineEnd = endLineZeroBased + 1
 	if (lineEnd < lineStart) return undefined
