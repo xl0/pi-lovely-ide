@@ -28,7 +28,7 @@ const TOGGLE_LABELS: Record<ToggleKey, string> = {
 	autoConnectOnStartup: "Auto-connect on startup",
 	autoReconnect: "Auto-reconnect on loss",
 	selectionContext: "Selection context",
-	displaySelectionMessages: "Display selection messages",
+	displaySelectionMessages: "Display context messages",
 	debugNotifications: "Debug raw IDE notifications"
 }
 
@@ -64,7 +64,7 @@ function saveConfigBestEffort(config: ConfigState): void {
 
 export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, deps: IdeCommandDeps<TIde>): void {
 	pi.registerCommand("ide", {
-		description: "Connect to an IDE, toggle auto-connect/reconnect/selection/debug displays",
+		description: "Connect to an IDE, toggle auto-connect/reconnect/context/debug displays",
 		handler: async (_args, ctx) => {
 			const ides = await deps.discoverMatchingIdes(ctx.cwd)
 
@@ -80,7 +80,7 @@ export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, de
 			function selectionPreviewText(): string {
 				if (!deps.config.selectionContext) return ""
 				const snapshot = connected ? (deps.selectionSnapshot() ?? PREVIEW_SELECTION) : PREVIEW_SELECTION
-				return `\`\`\`\nIDE selection context:\n${formatSelectionContext(snapshot, path => path, deps.config.selectedTextLineLimit)}\n\`\`\``
+				return `\`\`\`\n${formatSelectionContext(snapshot, path => path, deps.config.selectedTextLineLimit)}\n\`\`\``
 			}
 
 			const connected = deps.connected()

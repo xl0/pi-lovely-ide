@@ -16,16 +16,15 @@ import {
 import { registerIdeCommand } from "./command.js"
 import { ConfigState } from "./config.js"
 import { IdeConnection } from "./connection.js"
-import { formatAtMention } from "./mention.js"
 import {
-	displayPathForCwd,
-	formatSelectionContext,
-	injectSelectionContext,
-	parseSelectionSnapshot,
-	SELECTION_CONTEXT_CUSTOM_TYPE,
-	type SelectionSnapshot,
-	SelectionState
-} from "./selection.js"
+	formatIdeContextDetails,
+	IDE_CONTEXT_CUSTOM_TYPE,
+	type IdeContextDetails,
+	injectIdeContexts,
+	parseIdeContextDetails
+} from "./context.js"
+import { formatAtMention, type MentionSnapshot, mentionSnapshotFromEvent, mentionsReferencedInPrompt } from "./mention.js"
+import { displayPathForCwd, type SelectionSnapshot, SelectionState } from "./selection.js"
 
 const require = createRequire(import.meta.url)
 const packageJson = require("../../package.json") as { version?: string }
@@ -58,6 +57,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let connectingConnection: IdeConnection | null = null
 	let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 	let pendingSelection: SelectionSnapshot | null | undefined
+	let pendingMentions: MentionSnapshot[] = []
+	let pendingMentionBatches: MentionSnapshot[][] = []
 	let selectionPreviewRefresh: (() => void) | null = null
 
 	const config = new ConfigState()
@@ -187,10 +188,11 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		return new Text(`IDE raw ${details.method}:\n${highlightCode(details.pretty, "json").join("\n")}${suffix}`, 1, 0)
 	})
 
-	pi.registerMessageRenderer<SelectionSnapshot>(SELECTION_CONTEXT_CUSTOM_TYPE, message => {
-		const snapshot = parseSelectionSnapshot(message.details)
-		if (!snapshot) return undefined
-		return new Text(`IDE selection context:\n${formatSelectionContext(snapshot, displayPath, config.selectedTextLineLimit)}`, 1, 0)
+	pi.registerMessageRenderer<IdeContextDetails>(IDE_CONTEXT_CUSTOM_TYPE, message => {
+		const details = parseIdeContextDetails(message.details)
+		if (!details) return undefined
+		const text = formatIdeContextDetails(details, displayPath, config.selectedTextLineLimit)
+		return text ? new Text(text, 1, 0) : undefined
 	})
 
 	function updateStatus(): void {
@@ -249,8 +251,11 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		}
 
 		if (parsed.type === "mention") {
-			const mention = formatAtMention(parsed.params, displayPath)
-			if (!mention || !currentCtx) return
+			if (!currentCtx) return
+			const mentionSnapshot = mentionSnapshotFromEvent(parsed.params, displayPath)
+			const mention = mentionSnapshot?.ref ?? formatAtMention(parsed.params, displayPath)
+			if (!mention) return
+			if (mentionSnapshot) pendingMentions.push(mentionSnapshot)
 			currentCtx.ui.pasteToEditor(`${mention} `)
 			updateStatus()
 		}
@@ -369,12 +374,17 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	pi.on("input", (event, ctx) => {
 		const streamingBehavior = (event as { streamingBehavior?: "steer" | "followUp" }).streamingBehavior
-		if (
-			config.selectionContext &&
-			(event.source === "interactive" || event.source === "rpc") &&
-			streamingBehavior === undefined &&
-			ctx.isIdle()
-		) {
+		const isUserInput = event.source === "interactive" || event.source === "rpc"
+		if (isUserInput) {
+			const mentions = mentionsReferencedInPrompt(pendingMentions, event.text)
+			if (mentions.length) {
+				pendingMentionBatches.push(mentions)
+			} else if (event.text.includes("@") && pendingMentions.length) {
+				pendingMentionBatches.push(pendingMentions)
+			}
+			pendingMentions = []
+		}
+		if (config.selectionContext && isUserInput && streamingBehavior === undefined && ctx.isIdle()) {
 			pendingSelection = selection.snapshotCurrent()
 		} else {
 			pendingSelection = undefined
@@ -383,15 +393,16 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	})
 
 	pi.on("before_agent_start", () => {
+		const mentions = pendingMentionBatches.shift() ?? []
 		const snapshot = config.selectionContext ? (pendingSelection ?? null) : null
 		pendingSelection = undefined
-		if (snapshot) {
+		if (mentions.length || snapshot) {
 			return {
 				message: {
-					customType: SELECTION_CONTEXT_CUSTOM_TYPE,
+					customType: IDE_CONTEXT_CUSTOM_TYPE,
 					content: "",
 					display: config.displaySelectionMessages,
-					details: snapshot
+					details: { mentions, selection: snapshot }
 				}
 			}
 		}
@@ -399,8 +410,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	pi.on("context", event => {
 		const displayMessages = stripDebugNotificationMessages(event.messages) ?? event.messages
-		const messages = injectSelectionContext(displayMessages, config.selectionContext, displayPath, config.selectedTextLineLimit)
-		if (messages) return { messages }
+		const contextMessages = injectIdeContexts(displayMessages, config.selectionContext, displayPath, config.selectedTextLineLimit)
+		if (contextMessages) return { messages: contextMessages }
 		if (displayMessages !== event.messages) return { messages: displayMessages }
 	})
 
@@ -418,6 +429,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", () => {
 		pendingSelection = undefined
+		pendingMentions = []
+		pendingMentionBatches = []
 		disconnect()
 		currentCtx?.ui.setStatus(STATUS_KEY, undefined)
 	})
