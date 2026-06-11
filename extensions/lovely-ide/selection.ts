@@ -1,32 +1,44 @@
 import { relative } from "node:path"
 import type { ContextEvent } from "@earendil-works/pi-coding-agent"
-import type { IdeEventParams, IdeSpan, IdeTextExcerpt } from "../../packages/protocol/src/index.js"
+import Type, { type Static } from "typebox"
+import {
+	CellAddressSchema,
+	type IdeEventParams,
+	type IdeSpan,
+	type IdeTextExcerpt,
+	type NotebookCellAddress,
+	TextExcerptSchema
+} from "../../packages/protocol/src/index.js"
 
 export const SELECTED_TEXT_LINE_LIMITS = [0, 3, 5, 9] as const
 export type SelectedTextLineLimit = (typeof SELECTED_TEXT_LINE_LIMITS)[number]
 export const DEFAULT_SELECTED_TEXT_LINE_LIMIT: SelectedTextLineLimit = 3
-function rangedSpan(selection: IdeEventParams): IdeSpan | undefined {
-	return selection.spans.find(s => s.range)
-}
-export interface SelectionSnapshot {
-	filePath: string
-	lineStart: number
-	lineEnd: number
-	characterStart: number
-	characterEnd: number
-	isCursor: boolean
-	text?: IdeTextExcerpt
-}
+
+export const SelectionRangeSnapshotSchema = Type.Object(
+	{
+		lineStart: Type.Integer({ minimum: 1 }),
+		lineEnd: Type.Integer({ minimum: 1 }),
+		characterStart: Type.Integer({ minimum: 1 }),
+		characterEnd: Type.Integer({ minimum: 1 }),
+		isCursor: Type.Boolean()
+	},
+	{ additionalProperties: true }
+)
+export type SelectionRangeSnapshot = Static<typeof SelectionRangeSnapshotSchema>
+
+export const SelectionSnapshotSchema = Type.Object(
+	{
+		filePath: Type.String(),
+		cell: Type.Optional(CellAddressSchema),
+		range: Type.Optional(SelectionRangeSnapshotSchema),
+		text: Type.Optional(TextExcerptSchema)
+	},
+	{ additionalProperties: true }
+)
+export type SelectionSnapshot = Static<typeof SelectionSnapshotSchema>
 
 type ContextMessage = ContextEvent["messages"][number]
 type ContextUserMessage = Extract<ContextMessage, { role: "user" }>
-interface SelectionLineRange {
-	lineStart: number
-	lineEnd: number
-	characterStart: number
-	characterEnd: number
-	isCursor: boolean
-}
 
 export function displayPathForCwd(cwd: string | undefined, path: string): string {
 	if (!cwd) return path
@@ -38,10 +50,9 @@ export function lineRangeText(lineStart: number, lineEnd: number): string {
 	return lineStart === lineEnd ? String(lineStart) : `${lineStart}-${lineEnd}`
 }
 
-function selectionLineRange(selection: IdeEventParams): SelectionLineRange | undefined {
-	const range = rangedSpan(selection)?.range
+function selectionLineRange(span: IdeSpan): SelectionRangeSnapshot | undefined {
+	const range = span.range
 	if (!range) return undefined
-
 	const isCursor = range.start.line === range.end.line && range.start.character === range.end.character
 	const lineStart = range.start.line + 1
 	const lineEnd = range.end.line + 1
@@ -55,76 +66,34 @@ function selectionLineRange(selection: IdeEventParams): SelectionLineRange | und
 	}
 }
 
+function snapshotCell(cell: IdeSpan["cell"]): NotebookCellAddress | undefined {
+	if (!cell) return undefined
+	return {
+		...(cell.index !== undefined ? { index: cell.index } : {}),
+		...(cell.id !== undefined ? { id: cell.id } : {})
+	}
+}
+
+function snapshotText(span: IdeSpan): IdeTextExcerpt | undefined {
+	return span.text && span.text.totalCharacters > 0 ? span.text : undefined
+}
+
 export function selectionSnapshotFromEvent(selection: IdeEventParams): SelectionSnapshot | undefined {
 	if (!selection.file) return undefined
-	const range = selectionLineRange(selection)
-	const span = rangedSpan(selection)
-	if (!range) return undefined
+	const span = selection.spans[0]
+	if (!span) return { filePath: selection.file }
 
+	const cell = snapshotCell(span.cell)
+	const range = selectionLineRange(span)
+	if (!range && !cell) return undefined
+	const text = snapshotText(span)
 	const snapshot: SelectionSnapshot = {
 		filePath: selection.file,
-		lineStart: range.lineStart,
-		lineEnd: range.lineEnd,
-		characterStart: range.characterStart,
-		characterEnd: range.characterEnd,
-		isCursor: range.isCursor
+		...(cell !== undefined ? { cell } : {}),
+		...(range !== undefined ? { range } : {})
 	}
-	if (span?.text && span.text.totalCharacters > 0) snapshot.text = span.text
+	if (text) snapshot.text = text
 	return snapshot
-}
-
-function parseTextExcerpt(value: unknown): IdeTextExcerpt | undefined {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
-	const record = value as {
-		head?: unknown
-		tail?: unknown
-		totalCharacters?: unknown
-		totalLines?: unknown
-		headTruncated?: unknown
-		tailTruncated?: unknown
-	}
-	if (typeof record.head !== "string") return undefined
-	if (typeof record.tail !== "string" && record.tail !== undefined) return undefined
-	if (!Number.isInteger(record.totalCharacters) || (record.totalCharacters as number) < 0) return undefined
-	if ((!Number.isInteger(record.totalLines) || (record.totalLines as number) < 0) && record.totalLines !== undefined) return undefined
-	if (typeof record.headTruncated !== "boolean" && record.headTruncated !== undefined) return undefined
-	if (typeof record.tailTruncated !== "boolean" && record.tailTruncated !== undefined) return undefined
-	return {
-		head: record.head,
-		...(record.tail !== undefined ? { tail: record.tail } : {}),
-		totalCharacters: record.totalCharacters as number,
-		...(record.totalLines !== undefined ? { totalLines: record.totalLines as number } : {}),
-		...(record.headTruncated !== undefined ? { headTruncated: record.headTruncated } : {}),
-		...(record.tailTruncated !== undefined ? { tailTruncated: record.tailTruncated } : {})
-	}
-}
-
-export function parseSelectionSnapshot(value: unknown): SelectionSnapshot | undefined {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
-	const record = value as {
-		filePath?: unknown
-		lineStart?: unknown
-		lineEnd?: unknown
-		characterStart?: unknown
-		characterEnd?: unknown
-		isCursor?: unknown
-		text?: unknown
-	}
-	if (typeof record.filePath !== "string") return undefined
-	if (!Number.isInteger(record.lineStart) || !Number.isInteger(record.lineEnd)) return undefined
-	if (!Number.isInteger(record.characterStart) || !Number.isInteger(record.characterEnd)) return undefined
-	if (typeof record.isCursor !== "boolean") return undefined
-	const text = record.text === undefined ? undefined : parseTextExcerpt(record.text)
-	if (text === undefined && record.text !== undefined) return undefined
-	return {
-		filePath: record.filePath,
-		lineStart: record.lineStart as number,
-		lineEnd: record.lineEnd as number,
-		characterStart: record.characterStart as number,
-		characterEnd: record.characterEnd as number,
-		isCursor: record.isCursor,
-		...(text !== undefined ? { text } : {})
-	}
 }
 
 export function appendContextToContent(content: ContextUserMessage["content"], context: string): ContextUserMessage["content"] {
@@ -171,6 +140,21 @@ function formatSelectedText(excerpt: IdeTextExcerpt, fallbackTotalLineCount: num
 	return [...shownHead, omittedLinesMarker(skipped), ...shownTail].join("\n")
 }
 
+export function formatSnapshotReference(
+	snapshot: SelectionSnapshot,
+	displayPath: (path: string) => string,
+	options: { prefix?: string; collapseCursor?: boolean } = {}
+): string {
+	let ref = `${options.prefix ?? ""}${displayPath(snapshot.filePath)}`
+	if (snapshot.cell?.id !== undefined) ref += `[cell ${snapshot.cell.id}]`
+	else if (snapshot.cell?.index !== undefined) ref += `[cell ${snapshot.cell.index + 1}]`
+	else if (snapshot.cell) ref += "[cell]"
+	if (!snapshot.range) return ref
+	if (snapshot.range.isCursor && options.collapseCursor) return `${ref}#${snapshot.range.lineStart}:${snapshot.range.characterStart}`
+	ref += `#${snapshot.range.lineStart}:${snapshot.range.characterStart}-${snapshot.range.lineEnd}:${snapshot.range.characterEnd}`
+	return ref
+}
+
 export function formatSnapshotContext(
 	snapshot: SelectionSnapshot,
 	displayPath: (path: string) => string,
@@ -179,14 +163,23 @@ export function formatSnapshotContext(
 	extraAttributes = ""
 ): string {
 	const file = displayPath(snapshot.filePath)
-	const element = snapshot.isCursor && tag === "selection" ? "cursor" : tag
-	const attributes = `file="${file}"${extraAttributes}`
-	if (snapshot.isCursor) return `<${element} ${attributes} position="${snapshot.lineStart}:${snapshot.characterStart}" />`
+	let attributes = `file="${file}"`
+	if (snapshot.cell?.id !== undefined) attributes += ` cellId="${snapshot.cell.id}"`
+	if (snapshot.cell?.index !== undefined) attributes += ` cellIndex="${snapshot.cell.index + 1}"`
+	attributes += extraAttributes
+	if (!snapshot.range) {
+		const text =
+			snapshot.text !== undefined ? formatSelectedText(snapshot.text, snapshot.text.totalLines ?? 1, selectedTextLineLimit) : undefined
+		return text !== undefined ? `<${tag} ${attributes}>\n${text}\n</${tag}>` : `<${tag} ${attributes} />`
+	}
 
-	const range = `${snapshot.lineStart}:${snapshot.characterStart}-${snapshot.lineEnd}:${snapshot.characterEnd}`
+	const element = snapshot.range.isCursor && tag === "selection" ? "cursor" : tag
+	if (snapshot.range.isCursor) return `<${element} ${attributes} position="${snapshot.range.lineStart}:${snapshot.range.characterStart}" />`
+
+	const range = `${snapshot.range.lineStart}:${snapshot.range.characterStart}-${snapshot.range.lineEnd}:${snapshot.range.characterEnd}`
 	const text =
 		snapshot.text !== undefined
-			? formatSelectedText(snapshot.text, snapshot.lineEnd - snapshot.lineStart + 1, selectedTextLineLimit)
+			? formatSelectedText(snapshot.text, snapshot.range.lineEnd - snapshot.range.lineStart + 1, selectedTextLineLimit)
 			: undefined
 	if (text !== undefined) {
 		return `<${tag} ${attributes} range="${range}">\n${text}\n</${tag}>`
@@ -203,12 +196,12 @@ export function formatSelectionContext(
 }
 
 export class SelectionState {
-	#current: IdeEventParams | null = null
+	#current: SelectionSnapshot | null = null
 
 	constructor(private readonly displayPath: (path: string) => string) {}
 
 	setCurrent(selection: IdeEventParams): void {
-		this.#current = selection.file && selectionLineRange(selection) ? selection : null
+		this.#current = selectionSnapshotFromEvent(selection) ?? null
 	}
 
 	clearCurrent(): void {
@@ -216,14 +209,10 @@ export class SelectionState {
 	}
 
 	snapshotCurrent(): SelectionSnapshot | null {
-		return this.#current ? (selectionSnapshotFromEvent(this.#current) ?? null) : null
+		return this.#current
 	}
 
 	describeCurrent(): string | undefined {
-		if (!this.#current?.file) return undefined
-		const range = selectionLineRange(this.#current)
-		if (!range) return undefined
-		if (range.isCursor) return `${this.displayPath(this.#current.file)}#${range.lineStart}:${range.characterStart}`
-		return `${this.displayPath(this.#current.file)}#${range.lineStart}:${range.characterStart}-${range.lineEnd}:${range.characterEnd}`
+		return this.#current ? formatSnapshotReference(this.#current, this.displayPath, { collapseCursor: true }) : undefined
 	}
 }

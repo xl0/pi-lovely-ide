@@ -1,25 +1,28 @@
+import Type, { type Static } from "typebox"
 import type { IdeEventParams } from "../../packages/protocol/src/index.js"
-import { formatSnapshotContext, type SelectedTextLineLimit, type SelectionSnapshot, selectionSnapshotFromEvent } from "./selection.js"
+import {
+	formatSnapshotContext,
+	formatSnapshotReference,
+	type SelectedTextLineLimit,
+	SelectionSnapshotSchema,
+	selectionSnapshotFromEvent
+} from "./selection.js"
 
-export interface MentionSnapshot {
-	ref: string
-	snapshot: SelectionSnapshot
-}
+export const MentionSnapshotSchema = Type.Object(
+	{
+		ref: Type.String(),
+		snapshot: SelectionSnapshotSchema
+	},
+	{ additionalProperties: true }
+)
+export type MentionSnapshot = Static<typeof MentionSnapshotSchema>
 
 export function formatAtMention(event: IdeEventParams, displayPath: (path: string) => string): string | undefined {
-	if (!event.file) return undefined
-	let ref = `@${displayPath(event.file)}`
-	const span = event.spans.find(s => s.range)
-	if (!span?.range) return ref
-
-	if (span.range.end.line >= span.range.start.line) {
-		const startLine = span.range.start.line + 1
-		const endLine = span.range.end.line + 1
-		const startCharacter = span.range.start.character + 1
-		const endCharacter = span.range.end.character + 1
-		ref += `#${startLine}:${startCharacter}-${endLine}:${endCharacter}`
+	const snapshot = selectionSnapshotFromEvent(event)
+	if (snapshot) {
+		return formatSnapshotReference(snapshot, displayPath, { prefix: "@", collapseCursor: snapshot.cell !== undefined })
 	}
-	return ref
+	return event.file ? `@${displayPath(event.file)}` : undefined
 }
 
 export function mentionSnapshotFromEvent(event: IdeEventParams, displayPath: (path: string) => string): MentionSnapshot | undefined {
