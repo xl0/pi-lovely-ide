@@ -58,7 +58,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 	let pendingSelection: SelectionSnapshot | null | undefined
 	let pendingMentions: MentionSnapshot[] = []
-	let pendingMentionBatches: MentionSnapshot[][] = []
+	let pendingPromptMentions: MentionSnapshot[] = []
 	let selectionPreviewRefresh: (() => void) | null = null
 
 	const config = new ConfigState()
@@ -154,16 +154,9 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		return displayPathForCwd(currentCtx?.cwd, path)
 	}
 
-	function stripDebugNotificationMessages(messages: ContextEvent["messages"]): ContextEvent["messages"] | undefined {
-		let changed = false
-		const filtered = messages.filter(message => {
-			if (message.role === "custom" && message.customType === DEBUG_NOTIFICATION_CUSTOM_TYPE) {
-				changed = true
-				return false
-			}
-			return true
-		})
-		return changed ? filtered : undefined
+	function stripDebugNotificationMessages(messages: ContextEvent["messages"]): ContextEvent["messages"] {
+		const filtered = messages.filter(message => !(message.role === "custom" && message.customType === DEBUG_NOTIFICATION_CUSTOM_TYPE))
+		return filtered.length === messages.length ? messages : filtered
 	}
 
 	function parseDebugNotificationDetails(value: unknown): DebugNotificationDetails | undefined {
@@ -375,16 +368,13 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	pi.on("input", (event, ctx) => {
 		const streamingBehavior = (event as { streamingBehavior?: "steer" | "followUp" }).streamingBehavior
 		const isUserInput = event.source === "interactive" || event.source === "rpc"
+		// Pi emits before_agent_start in the same idle prompt() call; streamed steer/followUp gets no rich context.
+		const capturePromptContext = isUserInput && streamingBehavior === undefined && ctx.isIdle()
 		if (isUserInput) {
-			const mentions = mentionsReferencedInPrompt(pendingMentions, event.text)
-			if (mentions.length) {
-				pendingMentionBatches.push(mentions)
-			} else if (event.text.includes("@") && pendingMentions.length) {
-				pendingMentionBatches.push(pendingMentions)
-			}
+			pendingPromptMentions = capturePromptContext ? mentionsReferencedInPrompt(pendingMentions, event.text) : []
 			pendingMentions = []
 		}
-		if (config.selectionContext && isUserInput && streamingBehavior === undefined && ctx.isIdle()) {
+		if (config.selectionContext && capturePromptContext) {
 			pendingSelection = selection.snapshotCurrent()
 		} else {
 			pendingSelection = undefined
@@ -393,8 +383,9 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	})
 
 	pi.on("before_agent_start", () => {
-		const mentions = pendingMentionBatches.shift() ?? []
+		const mentions = pendingPromptMentions
 		const snapshot = config.selectionContext ? (pendingSelection ?? null) : null
+		pendingPromptMentions = []
 		pendingSelection = undefined
 		if (mentions.length || snapshot) {
 			return {
@@ -409,7 +400,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	})
 
 	pi.on("context", event => {
-		const displayMessages = stripDebugNotificationMessages(event.messages) ?? event.messages
+		const displayMessages = stripDebugNotificationMessages(event.messages)
 		const contextMessages = injectIdeContexts(displayMessages, config.selectionContext, displayPath, config.selectedTextLineLimit)
 		if (contextMessages) return { messages: contextMessages }
 		if (displayMessages !== event.messages) return { messages: displayMessages }
@@ -430,7 +421,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	pi.on("session_shutdown", () => {
 		pendingSelection = undefined
 		pendingMentions = []
-		pendingMentionBatches = []
+		pendingPromptMentions = []
 		disconnect()
 		currentCtx?.ui.setStatus(STATUS_KEY, undefined)
 	})
