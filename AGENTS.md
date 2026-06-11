@@ -33,7 +33,7 @@ Update the files as you go, keep the updates concise. Not a changelog - content 
 - The best changes are often the smallest correct changes.
 - When you are weighing two correct approaches, prefer the more minimal one (less new names, helpers, tests, etc).
 - Keep things in one function unless composable or reusable.
-- Avoid shallow abstractions. Avoid single-use abstractions. Deep abstractions with small interface preferred.
+- NO shallow abstractions. Avoid single-use abstractions. Strive to design deep abstractions with small interfaces.
 
 - No speculative try/catch with fall-backs. Only handle real errors, and default to a clear explicit fail, don't implement fallbacks unless asked.
 - Never create legacy compatibility layers, unless asked specifically.
