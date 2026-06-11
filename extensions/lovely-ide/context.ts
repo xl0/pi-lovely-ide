@@ -1,28 +1,23 @@
 import type { ContextEvent } from "@earendil-works/pi-coding-agent"
-import Type, { type Static } from "typebox"
-import { Compile } from "typebox/compile"
+import * as v from "valibot"
 import { formatMentionContext, MentionSnapshotSchema } from "./mention.js"
 import { appendContextToContent, formatSelectionContext, type SelectedTextLineLimit, SelectionSnapshotSchema } from "./selection.js"
 
 export const IDE_CONTEXT_CUSTOM_TYPE = "lovely-ide.context"
 
-export const IdeContextDetailsSchema = Type.Object(
-	{
-		mentions: Type.Array(MentionSnapshotSchema),
-		selection: Type.Union([SelectionSnapshotSchema, Type.Null()])
-	},
-	{ additionalProperties: true }
-)
-export type IdeContextDetails = Static<typeof IdeContextDetailsSchema>
-
-const IdeContextDetailsValidator = Compile(IdeContextDetailsSchema)
+export const IdeContextDetailsSchema = v.looseObject({
+	mentions: v.array(MentionSnapshotSchema),
+	selection: v.nullable(SelectionSnapshotSchema)
+})
+export type IdeContextDetails = v.InferOutput<typeof IdeContextDetailsSchema>
 
 type ContextMessage = ContextEvent["messages"][number]
 type ContextUserMessage = Extract<ContextMessage, { role: "user" }>
 type ContextCustomMessage = Extract<ContextMessage, { role: "custom" }>
 
 export function validateIdeContextDetails(value: unknown): IdeContextDetails | undefined {
-	return IdeContextDetailsValidator.Check(value) ? value : undefined
+	const result = v.safeParse(IdeContextDetailsSchema, value)
+	return result.success ? result.output : undefined
 }
 
 function isIdeContextMessage(message: ContextMessage | undefined): message is ContextCustomMessage {
@@ -76,9 +71,7 @@ export function injectIdeContexts(
 					if (target?.role !== "user") continue
 					let content = target.content
 					const mentions = details.mentions.filter(mention => contentIncludesRef(content, mention.ref))
-					if (mentions.length) {
-						content = appendContextToContent(content, formatMentionContext(mentions, displayPath, selectedTextLineLimit))
-					}
+					if (mentions.length) content = appendContextToContent(content, formatMentionContext(mentions, displayPath, selectedTextLineLimit))
 					if (mentions.length === 0 && selectionContextEnabled && i === lastSelectionMarkerIndex && details.selection) {
 						content = appendContextToContent(content, formatSelectionContext(details.selection, displayPath, selectedTextLineLimit))
 					}

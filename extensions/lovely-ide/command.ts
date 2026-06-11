@@ -7,8 +7,8 @@ import { formatSelectionContext, SELECTED_TEXT_LINE_LIMITS, type SelectionSnapsh
 export interface CommandIde {
 	port: number
 	lock: {
-		pid?: number
-		ide?: string
+		pid?: number | undefined
+		ide?: string | undefined
 	}
 }
 

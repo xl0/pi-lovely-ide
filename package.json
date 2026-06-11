@@ -44,7 +44,7 @@
 		]
 	},
 	"dependencies": {
-		"typebox": "^1.2.2",
-		"undici": "^8.4.0"
+		"undici": "^8.4.0",
+		"valibot": "^1.4.0"
 	}
 }

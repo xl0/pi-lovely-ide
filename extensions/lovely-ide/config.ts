@@ -1,27 +1,27 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import Type, { type Static } from "typebox"
-import { Compile } from "typebox/compile"
+import * as v from "valibot"
 import { DEFAULT_SELECTED_TEXT_LINE_LIMIT, type SelectedTextLineLimit } from "./selection.js"
 
 const CONFIG_FILE = "xl0-lovely-ide.json"
 
-const ConfigSchema = Type.Object(
-	{
-		autoConnectOnStartup: Type.Optional(Type.Boolean()),
-		autoReconnect: Type.Optional(Type.Boolean()),
-		selectionContext: Type.Optional(Type.Boolean()),
-		selectedTextLineLimit: Type.Optional(Type.Union([Type.Literal(0), Type.Literal(3), Type.Literal(5), Type.Literal(9)])),
-		displaySelectionMessages: Type.Optional(Type.Boolean()),
-		debugNotifications: Type.Optional(Type.Boolean())
-	},
-	{ additionalProperties: true }
-)
+const ConfigSchema = v.looseObject({
+	autoConnectOnStartup: v.optional(v.boolean()),
+	autoReconnect: v.optional(v.boolean()),
+	selectionContext: v.optional(v.boolean()),
+	selectedTextLineLimit: v.optional(v.union([v.literal(0), v.literal(3), v.literal(5), v.literal(9)])),
+	displaySelectionMessages: v.optional(v.boolean()),
+	debugNotifications: v.optional(v.boolean())
+})
 
-export type ConfigKey = keyof Static<typeof ConfigSchema>
+export type ConfigKey =
+	| "autoConnectOnStartup"
+	| "autoReconnect"
+	| "selectionContext"
+	| "selectedTextLineLimit"
+	| "displaySelectionMessages"
+	| "debugNotifications"
 export type ToggleKey = Exclude<ConfigKey, "selectedTextLineLimit">
-
-const ConfigValidator = Compile(ConfigSchema)
 
 export class ConfigState {
 	#projectDir: string | undefined
@@ -49,13 +49,15 @@ export class ConfigState {
 			return
 		}
 
-		if (!ConfigValidator.Check(parsed)) return
-		if (parsed.autoConnectOnStartup !== undefined) this.autoConnectOnStartup = parsed.autoConnectOnStartup
-		if (parsed.autoReconnect !== undefined) this.autoReconnect = parsed.autoReconnect
-		if (parsed.selectionContext !== undefined) this.selectionContext = parsed.selectionContext
-		if (parsed.selectedTextLineLimit !== undefined) this.selectedTextLineLimit = parsed.selectedTextLineLimit
-		if (parsed.displaySelectionMessages !== undefined) this.displaySelectionMessages = parsed.displaySelectionMessages
-		if (parsed.debugNotifications !== undefined) this.debugNotifications = parsed.debugNotifications
+		const result = v.safeParse(ConfigSchema, parsed)
+		if (!result.success) return
+		const config = result.output
+		if (config.autoConnectOnStartup !== undefined) this.autoConnectOnStartup = config.autoConnectOnStartup
+		if (config.autoReconnect !== undefined) this.autoReconnect = config.autoReconnect
+		if (config.selectionContext !== undefined) this.selectionContext = config.selectionContext
+		if (config.selectedTextLineLimit !== undefined) this.selectedTextLineLimit = config.selectedTextLineLimit
+		if (config.displaySelectionMessages !== undefined) this.displaySelectionMessages = config.displaySelectionMessages
+		if (config.debugNotifications !== undefined) this.debugNotifications = config.debugNotifications
 	}
 
 	async save(): Promise<void> {

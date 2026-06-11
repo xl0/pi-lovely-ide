@@ -24,12 +24,15 @@ cd "$PLUGIN_DIR"
 bun install
 bun run package
 
-VSIX_NAME="$(node -e 'const p = require("./package.json"); process.stdout.write(`${p.name}-${p.version}.vsix`)')"
-VSIX="$PLUGIN_DIR/$VSIX_NAME"
+shopt -s nullglob
+VSIX_FILES=("$PLUGIN_DIR"/*.vsix)
+shopt -u nullglob
 
-if [[ ! -f "$VSIX" ]]; then
-	echo "VSIX not found: $VSIX" >&2
+if [[ ${#VSIX_FILES[@]} -ne 1 ]]; then
+	echo "expected exactly one VSIX in $PLUGIN_DIR" >&2
 	exit 1
 fi
+
+VSIX="${VSIX_FILES[0]}"
 
 "$IDE" --install-extension "$VSIX" --force

@@ -1,4 +1,4 @@
-import Type, { type Static } from "typebox"
+import * as v from "valibot"
 import type { IdeEventParams } from "../../packages/protocol/src/index.js"
 import {
 	formatSnapshotContext,
@@ -8,20 +8,15 @@ import {
 	selectionSnapshotFromEvent
 } from "./selection.js"
 
-export const MentionSnapshotSchema = Type.Object(
-	{
-		ref: Type.String(),
-		snapshot: SelectionSnapshotSchema
-	},
-	{ additionalProperties: true }
-)
-export type MentionSnapshot = Static<typeof MentionSnapshotSchema>
+export const MentionSnapshotSchema = v.looseObject({
+	ref: v.string(),
+	snapshot: SelectionSnapshotSchema
+})
+export type MentionSnapshot = v.InferOutput<typeof MentionSnapshotSchema>
 
 export function formatAtMention(event: IdeEventParams, displayPath: (path: string) => string): string | undefined {
 	const snapshot = selectionSnapshotFromEvent(event)
-	if (snapshot) {
-		return formatSnapshotReference(snapshot, displayPath, { prefix: "@", collapseCursor: true })
-	}
+	if (snapshot) return formatSnapshotReference(snapshot, displayPath, { prefix: "@", collapseCursor: true })
 	return event.file ? `@${displayPath(event.file)}` : undefined
 }
 
