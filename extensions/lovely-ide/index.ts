@@ -5,6 +5,8 @@ import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type ContextEvent, type ExtensionAPI, type ExtensionContext, getAgentDir, highlightCode } from "@earendil-works/pi-coding-agent"
 import { Text } from "@earendil-works/pi-tui"
+import Type, { type Static } from "typebox"
+import { Compile } from "typebox/compile"
 import {
 	type HelloParams,
 	type IdeLockFile,
@@ -21,7 +23,7 @@ import {
 	IDE_CONTEXT_CUSTOM_TYPE,
 	type IdeContextDetails,
 	injectIdeContexts,
-	parseIdeContextDetails
+	validateIdeContextDetails
 } from "./context.js"
 import { formatAtMention, type MentionSnapshot, mentionSnapshotFromEvent, mentionsReferencedInPrompt } from "./mention.js"
 import { displayPathForCwd, type SelectionSnapshot, SelectionState } from "./selection.js"
@@ -41,12 +43,17 @@ interface DiscoveredIde {
 	lock: IdeLockFile
 }
 
-interface DebugNotificationDetails {
-	method: string
-	pretty: string
-	originalLength: number
-	truncated: boolean
-}
+const DebugNotificationDetailsSchema = Type.Object(
+	{
+		method: Type.String(),
+		pretty: Type.String(),
+		originalLength: Type.Integer({ minimum: 0 }),
+		truncated: Type.Boolean()
+	},
+	{ additionalProperties: true }
+)
+type DebugNotificationDetails = Static<typeof DebugNotificationDetailsSchema>
+const DebugNotificationDetailsValidator = Compile(DebugNotificationDetailsSchema)
 
 export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let currentCtx: ExtensionContext | null = null
@@ -160,19 +167,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		return filtered.length === messages.length ? messages : filtered
 	}
 
-	function parseDebugNotificationDetails(value: unknown): DebugNotificationDetails | undefined {
-		if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
-		const record = value as { method?: unknown; pretty?: unknown; originalLength?: unknown; truncated?: unknown }
-		if (typeof record.method !== "string") return undefined
-		if (typeof record.pretty !== "string") return undefined
-		if (!Number.isInteger(record.originalLength)) return undefined
-		if (typeof record.truncated !== "boolean") return undefined
-		return {
-			method: record.method,
-			pretty: record.pretty,
-			originalLength: record.originalLength as number,
-			truncated: record.truncated
-		}
+	function validateDebugNotificationDetails(value: unknown): DebugNotificationDetails | undefined {
+		return DebugNotificationDetailsValidator.Check(value) ? value : undefined
 	}
 
 	function clearDebugNotificationMessages(): void {
@@ -180,7 +176,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	}
 
 	pi.registerMessageRenderer<DebugNotificationDetails>(DEBUG_NOTIFICATION_CUSTOM_TYPE, message => {
-		const details = parseDebugNotificationDetails(message.details)
+		const details = validateDebugNotificationDetails(message.details)
 		if (!details || !config.debugNotifications) return new Text("", 0, 0)
 		const suffix = details.truncated ? `\n… (${details.originalLength} chars)` : ""
 		const view = new Text(`IDE raw ${details.method}:\n${highlightCode(details.pretty, "json").join("\n")}${suffix}`, 1, 0)
@@ -189,7 +185,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	})
 
 	pi.registerMessageRenderer<IdeContextDetails>(IDE_CONTEXT_CUSTOM_TYPE, message => {
-		const details = parseIdeContextDetails(message.details)
+		const details = validateIdeContextDetails(message.details)
 		if (!details) return undefined
 		const text = formatIdeContextDetails(details, displayPath, config.selectedTextLineLimit)
 		return text ? new Text(text, 1, 0) : undefined

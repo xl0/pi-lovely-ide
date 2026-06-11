@@ -50,13 +50,32 @@ function nextSelectedTextLineLimit(value: ConfigState["selectedTextLineLimit"]):
 	return SELECTED_TEXT_LINE_LIMITS[(idx + 1) % SELECTED_TEXT_LINE_LIMITS.length] ?? SELECTED_TEXT_LINE_LIMITS[0]
 }
 
+const PREVIEW_SELECTED_TEXT = [
+	"const items: SelectItem[] = [",
+	"\t...ides.map((ide): SelectItem => {",
+	'\t\tconst name = ide.lock.ide ?? "IDE"',
+	'\t\tconst pid = ide.lock.pid ?? "?"',
+	'\t\tconst cur = connected?.port === ide.port ? " (current)" : ""',
+	`\t\treturn { value: ide.port.toString(), label: \`\${name} \${pid}\${cur}\` }`,
+	"\t}),",
+	'\t{ value: "Disconnect", label: "Disconnect" },',
+	'\t{ value: "autoConnectOnStartup", label: labelForToggle("autoConnectOnStartup") }'
+].join("\n")
+
 const PREVIEW_SELECTION: SelectionSnapshot = {
 	filePath: "extensions/lovely-ide/command.ts",
-	lineStart: 83,
-	lineEnd: 83,
-	characterStart: 38,
-	characterEnd: 38,
-	isCursor: true
+	range: {
+		lineStart: 95,
+		lineEnd: 103,
+		characterStart: 4,
+		characterEnd: 86,
+		isCursor: false
+	},
+	text: {
+		head: PREVIEW_SELECTED_TEXT,
+		totalCharacters: PREVIEW_SELECTED_TEXT.length,
+		totalLines: 9
+	}
 }
 
 function saveConfigBestEffort(config: ConfigState): void {
