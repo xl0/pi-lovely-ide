@@ -8,8 +8,6 @@ import {
 	type HelloParams,
 	type IdeEventParams,
 	type IdeSpan,
-	type IdeTextExcerpt,
-	type JsonRpcId,
 	type JsonRpcMessage,
 	PI_IDE_AUTH_HEADER,
 	PI_IDE_PROTOCOL,
@@ -121,26 +119,6 @@ function send(socket: WebSocket, message: JsonRpcMessage): void {
 	if (socket.readyState === 1) socket.send(JSON.stringify(message))
 }
 
-function response(id: JsonRpcId, result: unknown): JsonRpcMessage {
-	return { jsonrpc: "2.0", id, result }
-}
-
-function errorResponse(id: JsonRpcId, code: number, message: string): JsonRpcMessage {
-	return { jsonrpc: "2.0", id, error: { code, message } }
-}
-
-function subscriptions(conn: PiConnection): Set<string> {
-	return new Set(conn.hello.connection.subscriptions ?? [])
-}
-
-function truncateEnd(text: string, maxCharacters: number): { text: string; truncated: boolean } {
-	return text.length > maxCharacters ? { text: text.slice(0, maxCharacters), truncated: true } : { text, truncated: false }
-}
-
-function truncateStart(text: string, maxCharacters: number): { text: string; truncated: boolean } {
-	return text.length > maxCharacters ? { text: text.slice(-maxCharacters), truncated: true } : { text, truncated: false }
-}
-
 function selectedLineCount(range: vscode.Range): number {
 	if (range.end.line === range.start.line) return 1
 	return range.end.character === 0 ? range.end.line - range.start.line : range.end.line - range.start.line + 1
@@ -158,10 +136,6 @@ function lastLinesRange(range: vscode.Range, maxLines: number): vscode.Range {
 	return new vscode.Range(start, range.end)
 }
 
-function maybeText(text: IdeTextExcerpt): Pick<IdeSpan, "text"> {
-	return text.totalCharacters > 0 ? { text } : {}
-}
-
 function textForRange(document: vscode.TextDocument, range: vscode.Range): Pick<IdeSpan, "text"> {
 	const start = document.offsetAt(range.start)
 	const end = document.offsetAt(range.end)
@@ -170,24 +144,21 @@ function textForRange(document: vscode.TextDocument, range: vscode.Range): Pick<
 	const totalCharacters = end - start
 	const totalLines = selectedLineCount(range)
 	if (totalLines <= MAX_SPAN_TEXT_EDGE_LINES * 2 && totalCharacters <= MAX_SPAN_TEXT_EDGE_CHARS * 2) {
-		return maybeText({ head: document.getText(range), totalCharacters, totalLines })
+		return { text: { head: document.getText(range), totalCharacters, totalLines } }
 	}
 
-	const head = truncateEnd(document.getText(firstLinesRange(range, MAX_SPAN_TEXT_EDGE_LINES)), MAX_SPAN_TEXT_EDGE_CHARS)
-	const tail = truncateStart(document.getText(lastLinesRange(range, MAX_SPAN_TEXT_EDGE_LINES)), MAX_SPAN_TEXT_EDGE_CHARS)
-	return maybeText({
-		head: head.text,
-		tail: tail.text,
-		totalCharacters,
-		totalLines,
-		...(head.truncated ? { headTruncated: true } : {}),
-		...(tail.truncated ? { tailTruncated: true } : {})
-	})
-}
-
-function fullDocumentRange(document: vscode.TextDocument): vscode.Range {
-	const lastLine = document.lineAt(Math.max(0, document.lineCount - 1))
-	return new vscode.Range(0, 0, lastLine.lineNumber, lastLine.range.end.character)
+	const headText = document.getText(firstLinesRange(range, MAX_SPAN_TEXT_EDGE_LINES))
+	const tailText = document.getText(lastLinesRange(range, MAX_SPAN_TEXT_EDGE_LINES))
+	return {
+		text: {
+			head: headText.slice(0, MAX_SPAN_TEXT_EDGE_CHARS),
+			tail: tailText.slice(-MAX_SPAN_TEXT_EDGE_CHARS),
+			totalCharacters,
+			totalLines,
+			...(headText.length > MAX_SPAN_TEXT_EDGE_CHARS ? { headTruncated: true } : {}),
+			...(tailText.length > MAX_SPAN_TEXT_EDGE_CHARS ? { tailTruncated: true } : {})
+		}
+	}
 }
 
 function cellAddress(cell: vscode.NotebookCell): NonNullable<IdeSpan["cell"]> {
@@ -196,21 +167,9 @@ function cellAddress(cell: vscode.NotebookCell): NonNullable<IdeSpan["cell"]> {
 }
 
 function findNotebookCell(document: vscode.TextDocument): vscode.NotebookCell | undefined {
-	const notebooks = [
-		...(vscode.window.activeNotebookEditor ? [vscode.window.activeNotebookEditor.notebook] : []),
-		...vscode.window.visibleNotebookEditors.map(editor => editor.notebook),
-		...vscode.workspace.notebookDocuments
-	]
 	const documentUri = document.uri.toString()
-	const seen = new Set<string>()
-	for (const notebook of notebooks) {
-		const notebookUri = notebook.uri.toString()
-		if (seen.has(notebookUri)) continue
-		seen.add(notebookUri)
-		for (let i = 0; i < notebook.cellCount; i++) {
-			const cell = notebook.cellAt(i)
-			if (cell.document === document || cell.document.uri.toString() === documentUri) return cell
-		}
+	for (const cell of vscode.window.activeNotebookEditor?.notebook.getCells() ?? []) {
+		if (cell.document === document || cell.document.uri.toString() === documentUri) return cell
 	}
 	return undefined
 }
@@ -225,19 +184,16 @@ function spansForSelections(document: vscode.TextDocument, selections: readonly 
 	}))
 }
 
-function eventForEditor(editor: vscode.TextEditor | undefined, type: "selection" | "mention"): IdeEventParams {
-	if (!editor) return { type, file: null, spans: [] }
-	return { type, file: editor.document.uri.fsPath, spans: spansForSelections(editor.document, editor.selections) }
-}
-
-function eventForTextEditorSelection(event: vscode.TextEditorSelectionChangeEvent): IdeEventParams {
-	const cell = findNotebookCell(event.textEditor.document)
-	if (cell) {
-		return {
-			type: "selection",
-			file: cell.notebook.uri.fsPath,
-			spans: spansForSelections(cell.document, event.selections).map(span => ({ cell: cellAddress(cell), ...span }))
-		}
+function eventForTextEditorSelection(event: vscode.TextEditorSelectionChangeEvent): IdeEventParams | undefined {
+	if (event.textEditor.document.uri.scheme === "vscode-notebook-cell") {
+		const cell = findNotebookCell(event.textEditor.document)
+		return cell
+			? {
+					type: "selection",
+					file: cell.notebook.uri.fsPath,
+					spans: spansForSelections(cell.document, event.selections).map(span => ({ cell: cellAddress(cell), ...span }))
+				}
+			: undefined
 	}
 	return {
 		type: "selection",
@@ -246,63 +202,16 @@ function eventForTextEditorSelection(event: vscode.TextEditorSelectionChangeEven
 	}
 }
 
-function eventForNotebookCellEditor(editor: vscode.TextEditor | undefined, type: "selection" | "mention"): IdeEventParams | undefined {
+function currentMentionEvent(): IdeEventParams | undefined {
+	const editor = vscode.window.activeTextEditor
 	if (!editor) return undefined
-	const cell = findNotebookCell(editor.document)
-	if (!cell) return undefined
-	const spans = spansForSelections(cell.document, editor.selections).map(span => ({ cell: cellAddress(cell), ...span }))
-	return spans.length > 0 ? { type, file: cell.notebook.uri.fsPath, spans } : undefined
-}
-
-function eventForNotebookCells(type: "selection" | "mention", includeSingleCell: boolean): IdeEventParams | undefined {
-	const editor = vscode.window.activeNotebookEditor
-	if (!editor) return undefined
-	const spans: IdeSpan[] = []
-	for (const selection of editor.selections) {
-		if (!includeSingleCell && selection.end - selection.start <= 1) continue
-		for (let i = selection.start; i < selection.end; i++) {
-			const cell = editor.notebook.cellAt(i)
-			spans.push({ cell: cellAddress(cell), ...textForRange(cell.document, fullDocumentRange(cell.document)) })
-		}
+	if (editor.document.uri.scheme === "vscode-notebook-cell") {
+		const cell = findNotebookCell(editor.document)
+		if (!cell) return undefined
+		const spans = spansForSelections(cell.document, editor.selections).map(span => ({ cell: cellAddress(cell), ...span }))
+		return spans.length > 0 ? { type: "mention", file: cell.notebook.uri.fsPath, spans } : undefined
 	}
-	return spans.length > 0 ? { type, file: editor.notebook.uri.fsPath, spans } : undefined
-}
-
-function currentEvent(type: "selection" | "mention", includeSingleNotebookCell = false): IdeEventParams {
-	return (
-		eventForNotebookCellEditor(vscode.window.activeTextEditor, type) ??
-		eventForNotebookCells(type, includeSingleNotebookCell) ??
-		eventForEditor(vscode.window.activeTextEditor, type)
-	)
-}
-
-function publish(event: IdeEventParams, target?: PiConnection): void {
-	for (const conn of target ? [target] : connections.values()) {
-		if (!subscriptions(conn).has(event.type)) continue
-		logChannel?.debug(`Send ${eventSummary(event)} to ${label(conn)}`)
-		send(conn.socket, { jsonrpc: "2.0", method: "event", params: event })
-	}
-}
-
-function publishSelection(event: IdeEventParams): void {
-	const key = JSON.stringify(event)
-
-	for (const conn of connections.values()) {
-		if (!subscriptions(conn).has("selection")) continue
-		if (event.spans.length > 0) {
-			if (lastSelectionKeys.get(conn.socket) === key) continue
-			lastSelectionKeys.set(conn.socket, key)
-			logChannel?.debug(`Send ${eventSummary(event)} to ${label(conn)}`)
-			send(conn.socket, { jsonrpc: "2.0", method: "event", params: event })
-			continue
-		}
-
-		if (lastSelectionKeys.has(conn.socket)) {
-			lastSelectionKeys.delete(conn.socket)
-			logChannel?.debug(`Clear selection for ${label(conn)}`)
-			send(conn.socket, { jsonrpc: "2.0", method: "event", params: { type: "selection", file: null, spans: [] } })
-		}
-	}
+	return { type: "mention", file: editor.document.uri.fsPath, spans: spansForSelections(editor.document, editor.selections) }
 }
 
 function label(conn: PiConnection): string {
@@ -312,14 +221,18 @@ function label(conn: PiConnection): string {
 }
 
 async function mentionSelection(): Promise<void> {
-	const event = currentEvent("mention", true)
-	logChannel?.info(`Mention command ${eventSummary(event)}`)
-	const targets = [...connections.values()].filter(conn => subscriptions(conn).has("mention"))
-	if (targets.length === 0) {
-		void vscode.window.showInformationMessage("No Pi connection subscribed to mentions")
+	const event = currentMentionEvent()
+	if (!event) {
+		void vscode.window.showWarningMessage("No active editor selection to mention")
 		return
 	}
+	logChannel?.info(`Mention command ${eventSummary(event)}`)
+	const targets = [...connections.values()].filter(conn => conn.hello.connection.subscriptions?.includes("mention"))
 	let target = targets[0]
+	if (!target) {
+		void vscode.window.showInformationMessage("No Pi agent subscribed to mentions.")
+		return
+	}
 	if (targets.length > 1) {
 		const picked = await vscode.window.showQuickPick(
 			targets.map(conn => ({ label: label(conn), conn })),
@@ -328,7 +241,8 @@ async function mentionSelection(): Promise<void> {
 		if (!picked) return
 		target = picked.conn
 	}
-	publish(event, target)
+	logChannel?.debug(`Send ${eventSummary(event)} to ${label(target)}`)
+	send(target.socket, { jsonrpc: "2.0", method: "event", params: event })
 }
 
 function handleMessage(socket: WebSocket, raw: string): void {
@@ -342,23 +256,27 @@ function handleMessage(socket: WebSocket, raw: string): void {
 	if (parsed.kind === "hello") {
 		if (parsed.params.version !== PI_IDE_PROTOCOL_VERSION) {
 			logChannel?.warn(`Rejected hello with unsupported protocol version ${parsed.params.version}`)
-			send(socket, errorResponse(parsed.id, -32000, "unsupported protocol version"))
+			send(socket, { jsonrpc: "2.0", id: parsed.id, error: { code: -32000, message: "unsupported protocol version" } })
 			return
 		}
 		const conn: PiConnection = { socket, hello: parsed.params }
 		connections.set(socket, conn)
 		logChannel?.info(`Accepted hello from ${label(conn)} workspace=${parsed.params.workspace}`)
-		send(socket, response(parsed.id, { version: PI_IDE_PROTOCOL_VERSION, ide: { name: vscode.env.appName, version: vscode.version } }))
+		send(socket, {
+			jsonrpc: "2.0",
+			id: parsed.id,
+			result: { version: PI_IDE_PROTOCOL_VERSION, ide: { name: vscode.env.appName, version: vscode.version } }
+		})
 		return
 	}
 
 	if (msg.method === "hello" && msg.id != null) {
 		logChannel?.warn("Rejected invalid hello")
-		send(socket, errorResponse(msg.id, -32602, "invalid hello"))
+		send(socket, { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "invalid hello" } })
 		return
 	}
 
-	if (parsed.kind === "ping") send(socket, response(parsed.id, {}))
+	if (parsed.kind === "ping") send(socket, { jsonrpc: "2.0", id: parsed.id, result: {} })
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -397,7 +315,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		vscode.window.onDidChangeTextEditorSelection(event => {
 			if (event.textEditor.document.uri.scheme === "output") return
 			logVsCodeEvent("onDidChangeTextEditorSelection", JSON.stringify(event))
-			publishSelection(eventForTextEditorSelection(event))
+			const selection = eventForTextEditorSelection(event)
+			if (!selection) return
+			const key = JSON.stringify(selection)
+			for (const conn of connections.values()) {
+				if (!conn.hello.connection.subscriptions?.includes("selection")) continue
+				if (selection.spans.length === 0) {
+					if (!lastSelectionKeys.has(conn.socket)) continue
+					lastSelectionKeys.delete(conn.socket)
+					logChannel?.debug(`Clear selection for ${label(conn)}`)
+					send(conn.socket, { jsonrpc: "2.0", method: "event", params: { type: "selection", file: null, spans: [] } })
+					continue
+				}
+				if (lastSelectionKeys.get(conn.socket) === key) continue
+				lastSelectionKeys.set(conn.socket, key)
+				logChannel?.debug(`Send ${eventSummary(selection)} to ${label(conn)}`)
+				send(conn.socket, { jsonrpc: "2.0", method: "event", params: selection })
+			}
 		}),
 		vscode.workspace.onDidChangeWorkspaceFolders(event => {
 			logVsCodeEvent(
