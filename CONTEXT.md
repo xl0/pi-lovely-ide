@@ -9,7 +9,7 @@ The active non-empty text range reported by the connected IDE, including file pa
 _Avoid_: cursor, editor state, selection update
 
 **Selection Snapshot**:
-The file path and 1-based line range captured from the IDE Selection at user submit, with selected text included only for one- or two-line selections up to 2KB.
+The file path and 1-based line range captured from the IDE Selection at user submit, with optional selected text excerpt containing first/last edges and total counts.
 _Avoid_: live selection, character-counted selection, current selection during turn
 
 **Selection Context**:
@@ -46,7 +46,7 @@ _Avoid_: file line in notebook JSON
 
 ## Relationships
 
-- A **Selection Snapshot** is captured from at most one **IDE Selection** per user-submitted turn and includes selected text only when the selection spans fewer than three lines and is no larger than 2KB.
+- A **Selection Snapshot** is captured from at most one **IDE Selection** per user-submitted turn and may include a text excerpt supplied by the IDE.
 - **Selection Context** is transient and is not stored in message history.
 - An **At Mention** is user-authored message text; **Selection Context** is ambient model context.
 

@@ -67,12 +67,24 @@ export const CellAddressSchema = Type.Object(
 )
 export type NotebookCellAddress = Static<typeof CellAddressSchema>
 
+export const TextExcerptSchema = Type.Object(
+	{
+		head: Type.String(),
+		tail: Type.Optional(Type.String()),
+		totalCharacters: Type.Integer({ minimum: 0 }),
+		totalLines: Type.Optional(Type.Integer({ minimum: 0 })),
+		headTruncated: Type.Optional(Type.Boolean()),
+		tailTruncated: Type.Optional(Type.Boolean())
+	},
+	{ additionalProperties: true }
+)
+export type IdeTextExcerpt = Static<typeof TextExcerptSchema>
+
 export const SpanSchema = Type.Object(
 	{
 		cell: Type.Optional(CellAddressSchema),
 		range: Type.Optional(RangeSchema),
-		text: Type.Optional(Type.String()),
-		textTotalCharacters: Type.Optional(Type.Integer({ minimum: 0 }))
+		text: Type.Optional(TextExcerptSchema)
 	},
 	{ additionalProperties: true }
 )

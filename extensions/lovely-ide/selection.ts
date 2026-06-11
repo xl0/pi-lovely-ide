@@ -1,6 +1,6 @@
 import { relative } from "node:path"
 import type { ContextEvent } from "@earendil-works/pi-coding-agent"
-import type { IdeEventParams, IdeSpan } from "../../packages/protocol/src/index.js"
+import type { IdeEventParams, IdeSpan, IdeTextExcerpt } from "../../packages/protocol/src/index.js"
 
 export const SELECTED_TEXT_LINE_LIMITS = [0, 3, 5, 9] as const
 export type SelectedTextLineLimit = (typeof SELECTED_TEXT_LINE_LIMITS)[number]
@@ -15,8 +15,7 @@ export interface SelectionSnapshot {
 	characterStart: number
 	characterEnd: number
 	isCursor: boolean
-	text?: string
-	textTotalCharacters?: number
+	text?: IdeTextExcerpt
 }
 
 type ContextMessage = ContextEvent["messages"][number]
@@ -70,12 +69,34 @@ export function selectionSnapshotFromEvent(selection: IdeEventParams): Selection
 		characterEnd: range.characterEnd,
 		isCursor: range.isCursor
 	}
-	if (typeof span?.text === "string" && span.text.length > 0) {
-		snapshot.text = span.text
-		const textTotalCharacters = span.textTotalCharacters
-		if (Number.isInteger(textTotalCharacters)) snapshot.textTotalCharacters = textTotalCharacters as number
-	}
+	if (span?.text && span.text.totalCharacters > 0) snapshot.text = span.text
 	return snapshot
+}
+
+function parseTextExcerpt(value: unknown): IdeTextExcerpt | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
+	const record = value as {
+		head?: unknown
+		tail?: unknown
+		totalCharacters?: unknown
+		totalLines?: unknown
+		headTruncated?: unknown
+		tailTruncated?: unknown
+	}
+	if (typeof record.head !== "string") return undefined
+	if (typeof record.tail !== "string" && record.tail !== undefined) return undefined
+	if (!Number.isInteger(record.totalCharacters) || (record.totalCharacters as number) < 0) return undefined
+	if ((!Number.isInteger(record.totalLines) || (record.totalLines as number) < 0) && record.totalLines !== undefined) return undefined
+	if (typeof record.headTruncated !== "boolean" && record.headTruncated !== undefined) return undefined
+	if (typeof record.tailTruncated !== "boolean" && record.tailTruncated !== undefined) return undefined
+	return {
+		head: record.head,
+		...(record.tail !== undefined ? { tail: record.tail } : {}),
+		totalCharacters: record.totalCharacters as number,
+		...(record.totalLines !== undefined ? { totalLines: record.totalLines as number } : {}),
+		...(record.headTruncated !== undefined ? { headTruncated: record.headTruncated } : {}),
+		...(record.tailTruncated !== undefined ? { tailTruncated: record.tailTruncated } : {})
+	}
 }
 
 export function parseSelectionSnapshot(value: unknown): SelectionSnapshot | undefined {
@@ -88,14 +109,13 @@ export function parseSelectionSnapshot(value: unknown): SelectionSnapshot | unde
 		characterEnd?: unknown
 		isCursor?: unknown
 		text?: unknown
-		textTotalCharacters?: unknown
 	}
 	if (typeof record.filePath !== "string") return undefined
 	if (!Number.isInteger(record.lineStart) || !Number.isInteger(record.lineEnd)) return undefined
 	if (!Number.isInteger(record.characterStart) || !Number.isInteger(record.characterEnd)) return undefined
 	if (typeof record.isCursor !== "boolean") return undefined
-	if (typeof record.text !== "string" && record.text !== undefined) return undefined
-	if (!Number.isInteger(record.textTotalCharacters) && record.textTotalCharacters !== undefined) return undefined
+	const text = record.text === undefined ? undefined : parseTextExcerpt(record.text)
+	if (text === undefined && record.text !== undefined) return undefined
 	return {
 		filePath: record.filePath,
 		lineStart: record.lineStart as number,
@@ -103,8 +123,7 @@ export function parseSelectionSnapshot(value: unknown): SelectionSnapshot | unde
 		characterStart: record.characterStart as number,
 		characterEnd: record.characterEnd as number,
 		isCursor: record.isCursor,
-		...(record.text !== undefined ? { text: record.text } : {}),
-		...(record.textTotalCharacters !== undefined ? { textTotalCharacters: record.textTotalCharacters as number } : {})
+		...(text !== undefined ? { text } : {})
 	}
 }
 
@@ -115,29 +134,41 @@ export function appendContextToContent(content: ContextUserMessage["content"], c
 }
 
 function omittedLinesMarker(lineCount: number): string {
-	return `[... ${lineCount} lines ... ]`
+	return lineCount > 0 ? `[ ... ${lineCount} lines ... ]` : "[ ... omitted text ... ]"
 }
 
-function formatSelectedText(
-	text: string,
-	totalLineCount: number,
-	textTotalCharacters: number | undefined,
-	lineLimit: SelectedTextLineLimit
-): string | undefined {
-	if (lineLimit === 0 || text.length === 0) return undefined
-	const senderTruncated = textTotalCharacters !== undefined && text.length < textTotalCharacters
-	const lines = text.split(/\r?\n/)
-	if (!senderTruncated && lines.length <= lineLimit) return text
+function linesOf(text: string): string[] {
+	return text.split(/\r?\n/)
+}
 
-	if (senderTruncated) {
-		const shownLines = lines.slice(0, lineLimit)
-		const skipped = Math.max(0, totalLineCount - shownLines.length)
-		return [...shownLines, omittedLinesMarker(skipped)].join("\n")
-	}
+function markEndTruncated(lines: string[]): string[] {
+	return lines.length ? [...lines.slice(0, -1), `${lines.at(-1)}…`] : lines
+}
+
+function markStartTruncated(lines: string[]): string[] {
+	return lines.length ? [`…${lines[0]}`, ...lines.slice(1)] : lines
+}
+
+function formatSelectedText(excerpt: IdeTextExcerpt, fallbackTotalLineCount: number, lineLimit: SelectedTextLineLimit): string | undefined {
+	if (lineLimit === 0 || excerpt.totalCharacters === 0) return undefined
+	const totalLineCount = excerpt.totalLines ?? fallbackTotalLineCount
+	const headLines = linesOf(excerpt.head)
+	const fullText = excerpt.tail === undefined && !excerpt.headTruncated && excerpt.head.length === excerpt.totalCharacters
+	if (fullText && headLines.length <= lineLimit) return excerpt.head
 
 	const edgeLines = Math.floor(lineLimit / 2)
-	const skipped = Math.max(0, totalLineCount - edgeLines * 2)
-	return [...lines.slice(0, edgeLines), omittedLinesMarker(skipped), ...lines.slice(-edgeLines)].join("\n")
+	if (fullText) {
+		const skipped = Math.max(0, headLines.length - edgeLines * 2)
+		return [...headLines.slice(0, edgeLines), omittedLinesMarker(skipped), ...headLines.slice(-edgeLines)].join("\n")
+	}
+
+	const tailLines = excerpt.tail !== undefined ? linesOf(excerpt.tail) : []
+	let shownHead = headLines.slice(0, edgeLines)
+	let shownTail = tailLines.slice(-edgeLines)
+	if (excerpt.headTruncated && shownHead.length === headLines.length) shownHead = markEndTruncated(shownHead)
+	if (excerpt.tailTruncated && shownTail.length === tailLines.length) shownTail = markStartTruncated(shownTail)
+	const skipped = Math.max(0, totalLineCount - shownHead.length - shownTail.length)
+	return [...shownHead, omittedLinesMarker(skipped), ...shownTail].join("\n")
 }
 
 export function formatSnapshotContext(
@@ -154,7 +185,7 @@ export function formatSnapshotContext(
 	const range = `${snapshot.lineStart}:${snapshot.characterStart}-${snapshot.lineEnd}:${snapshot.characterEnd}`
 	const text =
 		snapshot.text !== undefined
-			? formatSelectedText(snapshot.text, snapshot.lineEnd - snapshot.lineStart + 1, snapshot.textTotalCharacters, selectedTextLineLimit)
+			? formatSelectedText(snapshot.text, snapshot.lineEnd - snapshot.lineStart + 1, selectedTextLineLimit)
 			: undefined
 	if (text !== undefined) {
 		return `<${tag} ${attributes} range="${range}">\n${text}\n</${tag}>`
