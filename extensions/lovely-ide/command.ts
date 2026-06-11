@@ -22,6 +22,7 @@ interface IdeCommandDeps<TIde extends CommandIde> {
 	scheduleReconnect(): void
 	selectionSnapshot(): SelectionSnapshot | null
 	setSelectionPreviewRefresh(refresh: (() => void) | null): void
+	clearDebugNotificationMessages(): void
 }
 
 const TOGGLE_LABELS: Record<ToggleKey, string> = {
@@ -160,6 +161,7 @@ export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, de
 									const sel = selectList.getSelectedItem()
 									if (sel && isToggleItem(sel.value)) {
 										deps.config[sel.value] = !deps.config[sel.value]
+										if (sel.value === "debugNotifications" && !deps.config.debugNotifications) deps.clearDebugNotificationMessages()
 										saveConfigBestEffort(deps.config)
 										deps.updateStatus()
 										const idx = items.findIndex(i => i.value === sel.value)
