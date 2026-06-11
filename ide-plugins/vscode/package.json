@@ -37,10 +37,11 @@
 		]
 	},
 	"scripts": {
-		"check-types": "tsc --noEmit -p .",
-		"compile": "npm run check-types && node esbuild.mjs",
+		"typecheck": "tsc --noEmit -p .",
+		"check": "bun run typecheck",
+		"compile": "bun run typecheck && node esbuild.mjs",
 		"watch": "node esbuild.mjs --watch",
-		"vscode:prepublish": "npm run check-types && node esbuild.mjs --production",
+		"vscode:prepublish": "bun run typecheck && node esbuild.mjs --production",
 		"package": "vsce package"
 	},
 	"devDependencies": {
