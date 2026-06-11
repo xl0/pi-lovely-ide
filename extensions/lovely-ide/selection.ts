@@ -179,8 +179,9 @@ export function formatSnapshotContext(
 	extraAttributes = ""
 ): string {
 	const file = displayPath(snapshot.filePath)
+	const element = snapshot.isCursor && tag === "selection" ? "cursor" : tag
 	const attributes = `file="${file}"${extraAttributes}`
-	if (snapshot.isCursor) return `<${tag} ${attributes} position="${snapshot.lineStart}:${snapshot.characterStart}" />`
+	if (snapshot.isCursor) return `<${element} ${attributes} position="${snapshot.lineStart}:${snapshot.characterStart}" />`
 
 	const range = `${snapshot.lineStart}:${snapshot.characterStart}-${snapshot.lineEnd}:${snapshot.characterEnd}`
 	const text =
