@@ -67,7 +67,7 @@ function selectionLineRange(span: IdeSpan): SelectionRangeSnapshot | undefined {
 }
 
 function snapshotCell(cell: IdeSpan["cell"]): NotebookCellAddress | undefined {
-	if (!cell) return undefined
+	if (!cell || (cell.index === undefined && cell.id === undefined)) return undefined
 	return {
 		...(cell.index !== undefined ? { index: cell.index } : {}),
 		...(cell.id !== undefined ? { id: cell.id } : {})

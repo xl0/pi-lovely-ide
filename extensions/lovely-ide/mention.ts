@@ -20,7 +20,7 @@ export type MentionSnapshot = Static<typeof MentionSnapshotSchema>
 export function formatAtMention(event: IdeEventParams, displayPath: (path: string) => string): string | undefined {
 	const snapshot = selectionSnapshotFromEvent(event)
 	if (snapshot) {
-		return formatSnapshotReference(snapshot, displayPath, { prefix: "@", collapseCursor: snapshot.cell !== undefined })
+		return formatSnapshotReference(snapshot, displayPath, { prefix: "@", collapseCursor: true })
 	}
 	return event.file ? `@${displayPath(event.file)}` : undefined
 }
