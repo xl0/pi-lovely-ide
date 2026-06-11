@@ -156,7 +156,7 @@ Unknown `params.type` values must be ignored. The IDE should only send an event 
 
 ### Shared location shape
 
-`selection` and `mention` use the same file/spans shape. A span is either a text range in a file, a text range in a notebook cell, or a whole notebook cell.
+`selection` and `mention` use the same file/spans shape. A reference can be a whole file, a text range in a file, a whole notebook cell, or a text range in a notebook cell.
 
 ```json
 {
@@ -215,12 +215,22 @@ Notebook example:
 }
 ```
 
+Whole-file example:
+
+```json
+{
+  "type": "mention",
+  "file": "/home/me/project/src/app.ts",
+  "spans": []
+}
+```
+
 Fields:
 
 - `file: string | null` — absolute IDE-side path, or `null` for no active file/selection.
-- `spans: Span[]` — selected/referenced spans in `file`. Empty means no selection/reference.
+- `spans: Span[]` — selected/referenced spans in `file`. Empty with `file: null` means no selection/reference. Empty with `file: string` means whole file.
 - `span.cell?: { index?: number; id?: string }` — notebook cell address when `file` is a notebook and the span is inside one cell. `index` is zero-based. `id` is the notebook cell id when available.
-- `span.range?: { start, end }` — zero-based editor range. When `span.cell` is present, range positions are relative to the cell text, not the serialized notebook file. Missing `range` with `cell` means the whole cell.
+- `span.range?: { start, end }` — zero-based editor range. When `span.cell` is present, range positions are relative to the cell text, not the serialized notebook file. Missing `range` with `cell` means whole cell.
 - `span.range.start` — inclusive start position.
 - `span.range.end` — inclusive end position for non-empty selections, equal to `start` for cursors.
 - `span.text?: TextExcerpt` — selected/referenced text excerpt when cheaply available. Omit for empty selections/cursors.
@@ -248,7 +258,7 @@ Large excerpt example:
 
 Senders whose editor APIs use half-open ranges should map a non-empty selection ending at column 0 to the previous line's last character before sending, and should exclude that trailing newline from `span.text`. Example: VS Code selection `52:0-53:0` for one whole line should be sent as `52:0-52:<last-character>`.
 
-A span without `range` is only valid when `cell` is present. A v1 event represents spans from one file only.
+A v1 event represents references from one file only. A span without `range` is valid only when `cell` is present; whole-file references use `file` plus empty `spans`.
 
 ### `selection`
 
@@ -320,7 +330,7 @@ Explicit user action from the IDE to insert/send a file/range reference to one P
 }
 ```
 
-Pi may render mention text as a human 1-based line reference, e.g. `@src/app.ts#11-13`.
+Pi may render mention text as a human 1-based line reference, e.g. `@src/app.ts#11-13`; whole file as `@src/app.ts`; notebook spans with a cell selector before the optional cell-relative range, e.g. `@analysis.ipynb[cell abc123]#2:1-3:5` or `@analysis.ipynb[cell 4]`.
 
 ## Ping
 

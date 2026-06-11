@@ -224,6 +224,7 @@ export function parseIdeEventParams(value: unknown): IdeEventParams | undefined 
 	} catch {
 		return undefined
 	}
+	if (params.file === null) return params.spans.length === 0 ? params : undefined
 	for (const span of params.spans) {
 		if (!span.range && !span.cell) return undefined
 	}
