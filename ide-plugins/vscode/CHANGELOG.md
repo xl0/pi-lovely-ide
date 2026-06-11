@@ -6,4 +6,4 @@
 - Advertises local authenticated IDE WebSocket endpoint via `~/.pi/ide` lockfile.
 - Sends active editor selections to connected Pi sessions.
 - Adds `Pi: Mention Selection` command with default `Alt+Shift+L` keybinding.
-- Supports whole-cell notebook selection spans where VS Code exposes them.
+- Supports notebook cell text selections as cell-relative ranged spans.
