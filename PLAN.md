@@ -12,7 +12,7 @@
 - [x] Static connection subscriptions; v1 events are `selection` and `mention`; unknown subscriptions/events ignored.
 - [x] IDE groups multiple connections by `session.id`; routes events by `connection.subscriptions`.
 - [x] Events use one JSON-RPC notification method `event` plus `params.type`.
-- [x] Wire ranges are zero-based, VS Code/LSP-style `start` inclusive and `end` exclusive; Pi displays/model refs as 1-based lines.
+- [x] Wire ranges are zero-based inclusive display/reference ranges; editor APIs with half-open ranges adapt before sending, including omitting VS Code's trailing full-line-selection newline from text excerpts.
 - [x] `selection` and `mention` share `file + spans`. Each span may be a file range, notebook-cell range, or whole notebook cell (`cell` without `range`).
 - [x] Span text uses `TextExcerpt`: small selections send full `head`; large selections send first/last lines (`head`/`tail`) with per-edge character caps.
 

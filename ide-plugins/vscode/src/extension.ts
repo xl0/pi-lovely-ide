@@ -161,6 +161,26 @@ function textForRange(document: vscode.TextDocument, range: vscode.Range): Pick<
 	}
 }
 
+function endLineBeforeTrailingNewline(document: vscode.TextDocument, selection: vscode.Selection): vscode.Position | undefined {
+	return !selection.isEmpty && selection.end.character === 0 && selection.end.line > selection.start.line
+		? document.lineAt(selection.end.line - 1).range.end
+		: undefined
+}
+
+function textRangeForSelection(document: vscode.TextDocument, selection: vscode.Selection): vscode.Range {
+	const lineEnd = endLineBeforeTrailingNewline(document, selection)
+	return lineEnd ? new vscode.Range(selection.start, lineEnd) : selection
+}
+
+function rangeForSelection(document: vscode.TextDocument, selection: vscode.Selection): NonNullable<IdeSpan["range"]> {
+	const lineEnd = endLineBeforeTrailingNewline(document, selection)
+	const end = lineEnd ? new vscode.Position(lineEnd.line, Math.max(0, lineEnd.character - 1)) : selection.end
+	return {
+		start: { line: selection.start.line, character: selection.start.character },
+		end: { line: end.line, character: end.character }
+	}
+}
+
 function cellAddress(cell: vscode.NotebookCell): NonNullable<IdeSpan["cell"]> {
 	const id = typeof cell.metadata.id === "string" ? cell.metadata.id : undefined
 	return { index: cell.index, ...(id ? { id } : {}) }
@@ -176,11 +196,8 @@ function findNotebookCell(document: vscode.TextDocument): vscode.NotebookCell | 
 
 function spansForSelections(document: vscode.TextDocument, selections: readonly vscode.Selection[]): IdeSpan[] {
 	return selections.map(selection => ({
-		range: {
-			start: { line: selection.start.line, character: selection.start.character },
-			end: { line: selection.end.line, character: selection.end.character }
-		},
-		...textForRange(document, selection)
+		range: rangeForSelection(document, selection),
+		...textForRange(document, textRangeForSelection(document, selection))
 	}))
 }
 

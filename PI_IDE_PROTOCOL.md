@@ -222,7 +222,7 @@ Fields:
 - `span.cell?: { index?: number; id?: string }` — notebook cell address when `file` is a notebook and the span is inside one cell. `index` is zero-based. `id` is the notebook cell id when available.
 - `span.range?: { start, end }` — zero-based editor range. When `span.cell` is present, range positions are relative to the cell text, not the serialized notebook file. Missing `range` with `cell` means the whole cell.
 - `span.range.start` — inclusive start position.
-- `span.range.end` — exclusive end position.
+- `span.range.end` — inclusive end position for non-empty selections, equal to `start` for cursors.
 - `span.text?: TextExcerpt` — selected/referenced text excerpt when cheaply available. Omit for empty selections/cursors.
 - `span.text.head: string` — full selected text when small, otherwise the first N selected lines. This string itself may be character-truncated from the end.
 - `span.text.tail?: string` — last N selected lines when the sender omitted the middle or otherwise could not send full text. This string itself may be character-truncated from the beginning.
@@ -246,7 +246,7 @@ Large excerpt example:
 }
 ```
 
-For line-only display, if `span.range.end.character === 0`, the final selected line is `span.range.end.line - 1`.
+Senders whose editor APIs use half-open ranges should map a non-empty selection ending at column 0 to the previous line's last character before sending, and should exclude that trailing newline from `span.text`. Example: VS Code selection `52:0-53:0` for one whole line should be sent as `52:0-52:<last-character>`.
 
 A span without `range` is only valid when `cell` is present. A v1 event represents spans from one file only.
 
