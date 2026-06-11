@@ -35,7 +35,7 @@ function spanSummary(span: IdeSpan): string {
 	const cell = span.cell ? ` cell=${span.cell.index ?? "?"}${span.cell.id ? `:${span.cell.id}` : ""}` : ""
 	const range = span.range
 		? ` range=${span.range.start.line}:${span.range.start.character}-${span.range.end.line}:${span.range.end.character}`
-		: " range=whole"
+		: ""
 	const text = span.text
 		? ` text=${span.text.head.length}${span.text.tail !== undefined ? `+${span.text.tail.length}` : ""}/${span.text.totalCharacters}`
 		: ""
