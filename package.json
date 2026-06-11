@@ -21,8 +21,8 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"typecheck": "tsgo --noEmit",
-		"check": "bun run typecheck && bun run biome:check",
+		"typecheck": "tsgo --noEmit && cd ide-plugins/vscode && bun run typecheck",
+		"check": "bun run typecheck && cd ide-plugins/vscode && bun run check && cd ../.. && bun run biome:check",
 		"release": "npm publish --access public",
 		"lint": "biome lint .",
 		"format": "biome format --write .",
