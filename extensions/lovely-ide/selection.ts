@@ -5,8 +5,6 @@ import type { IdeEventParams, IdeSpan } from "../../packages/protocol/src/index.
 export const SELECTED_TEXT_LINE_LIMITS = [0, 3, 5, 9] as const
 export type SelectedTextLineLimit = (typeof SELECTED_TEXT_LINE_LIMITS)[number]
 export const DEFAULT_SELECTED_TEXT_LINE_LIMIT: SelectedTextLineLimit = 3
-export const SELECTION_CONTEXT_CUSTOM_TYPE = "lovely-ide.selection"
-
 function rangedSpan(selection: IdeEventParams): IdeSpan | undefined {
 	return selection.spans.find(s => s.range)
 }
@@ -23,12 +21,9 @@ export interface SelectionSnapshot {
 
 type ContextMessage = ContextEvent["messages"][number]
 type ContextUserMessage = Extract<ContextMessage, { role: "user" }>
-type ContextCustomMessage = Extract<ContextMessage, { role: "custom" }>
-
 interface SelectionLineRange {
 	lineStart: number
 	lineEnd: number
-	lineCount: number
 	characterStart: number
 	characterEnd: number
 	isCursor: boolean
@@ -55,11 +50,32 @@ function selectionLineRange(selection: IdeEventParams): SelectionLineRange | und
 	return {
 		lineStart,
 		lineEnd,
-		lineCount: lineEnd - lineStart + 1,
 		characterStart: range.start.character + 1,
 		characterEnd: range.end.character + 1,
 		isCursor
 	}
+}
+
+export function selectionSnapshotFromEvent(selection: IdeEventParams): SelectionSnapshot | undefined {
+	if (!selection.file) return undefined
+	const range = selectionLineRange(selection)
+	const span = rangedSpan(selection)
+	if (!range) return undefined
+
+	const snapshot: SelectionSnapshot = {
+		filePath: selection.file,
+		lineStart: range.lineStart,
+		lineEnd: range.lineEnd,
+		characterStart: range.characterStart,
+		characterEnd: range.characterEnd,
+		isCursor: range.isCursor
+	}
+	if (typeof span?.text === "string" && span.text.length > 0) {
+		snapshot.text = span.text
+		const textTotalCharacters = span.textTotalCharacters
+		if (Number.isInteger(textTotalCharacters)) snapshot.textTotalCharacters = textTotalCharacters as number
+	}
+	return snapshot
 }
 
 export function parseSelectionSnapshot(value: unknown): SelectionSnapshot | undefined {
@@ -92,14 +108,14 @@ export function parseSelectionSnapshot(value: unknown): SelectionSnapshot | unde
 	}
 }
 
-function isSelectionContextMessage(message: ContextMessage | undefined): message is ContextCustomMessage {
-	return message?.role === "custom" && message.customType === SELECTION_CONTEXT_CUSTOM_TYPE
-}
-
-function appendContextToContent(content: ContextUserMessage["content"], context: string): ContextUserMessage["content"] {
+export function appendContextToContent(content: ContextUserMessage["content"], context: string): ContextUserMessage["content"] {
 	const suffix = `\n\n${context}`
 	if (typeof content === "string") return `${content}${suffix}`
 	return [...content, { type: "text", text: suffix }]
+}
+
+function omittedLinesMarker(lineCount: number): string {
+	return `[... ${lineCount} lines ... ]`
 }
 
 function formatSelectedText(
@@ -116,21 +132,24 @@ function formatSelectedText(
 	if (senderTruncated) {
 		const shownLines = lines.slice(0, lineLimit)
 		const skipped = Math.max(0, totalLineCount - shownLines.length)
-		return [...shownLines, `[${skipped} more lines]`].join("\n")
+		return [...shownLines, omittedLinesMarker(skipped)].join("\n")
 	}
 
 	const edgeLines = Math.floor(lineLimit / 2)
 	const skipped = Math.max(0, totalLineCount - edgeLines * 2)
-	return [...lines.slice(0, edgeLines), `[${skipped} more lines]`, ...lines.slice(-edgeLines)].join("\n")
+	return [...lines.slice(0, edgeLines), omittedLinesMarker(skipped), ...lines.slice(-edgeLines)].join("\n")
 }
 
-export function formatSelectionContext(
+export function formatSnapshotContext(
 	snapshot: SelectionSnapshot,
 	displayPath: (path: string) => string,
-	selectedTextLineLimit: SelectedTextLineLimit = DEFAULT_SELECTED_TEXT_LINE_LIMIT
+	selectedTextLineLimit: SelectedTextLineLimit = DEFAULT_SELECTED_TEXT_LINE_LIMIT,
+	tag = "selection",
+	extraAttributes = ""
 ): string {
 	const file = displayPath(snapshot.filePath)
-	if (snapshot.isCursor) return `<cursor file="${file}" position="${snapshot.lineStart}:${snapshot.characterStart}" />`
+	const attributes = `file="${file}"${extraAttributes}`
+	if (snapshot.isCursor) return `<${tag} ${attributes} position="${snapshot.lineStart}:${snapshot.characterStart}" />`
 
 	const range = `${snapshot.lineStart}:${snapshot.characterStart}-${snapshot.lineEnd}:${snapshot.characterEnd}`
 	const text =
@@ -138,55 +157,17 @@ export function formatSelectionContext(
 			? formatSelectedText(snapshot.text, snapshot.lineEnd - snapshot.lineStart + 1, snapshot.textTotalCharacters, selectedTextLineLimit)
 			: undefined
 	if (text !== undefined) {
-		return `<selection file="${file}" range="${range}">\n${text}\n</selection>`
+		return `<${tag} ${attributes} range="${range}">\n${text}\n</${tag}>`
 	}
-	return `<selection file="${file}" range="${range}" />`
+	return `<${tag} ${attributes} range="${range}" />`
 }
 
-export function injectSelectionContext(
-	messages: ContextEvent["messages"],
-	enabled: boolean,
+export function formatSelectionContext(
+	snapshot: SelectionSnapshot,
 	displayPath: (path: string) => string,
 	selectedTextLineLimit: SelectedTextLineLimit = DEFAULT_SELECTED_TEXT_LINE_LIMIT
-): ContextEvent["messages"] | undefined {
-	let lastMarkerIndex = -1
-	for (let i = messages.length - 1; i >= 0; i--) {
-		if (isSelectionContextMessage(messages[i])) {
-			lastMarkerIndex = i
-			break
-		}
-	}
-	if (lastMarkerIndex === -1) return undefined
-
-	const patched: ContextEvent["messages"] = []
-	let targetUserIndex = -1
-	let snapshot: SelectionSnapshot | undefined
-	for (let i = 0; i < messages.length; i++) {
-		const message = messages[i]
-		if (!message) continue
-		if (isSelectionContextMessage(message)) {
-			if (enabled && i === lastMarkerIndex) {
-				snapshot = parseSelectionSnapshot(message.details)
-				for (let j = patched.length - 1; j >= 0; j--) {
-					if (patched[j]?.role === "user") {
-						targetUserIndex = j
-						break
-					}
-				}
-			}
-			continue
-		}
-		patched.push(message)
-	}
-
-	const targetUser = patched[targetUserIndex]
-	if (snapshot && targetUser?.role === "user") {
-		patched[targetUserIndex] = {
-			...targetUser,
-			content: appendContextToContent(targetUser.content, formatSelectionContext(snapshot, displayPath, selectedTextLineLimit))
-		}
-	}
-	return patched
+): string {
+	return formatSnapshotContext(snapshot, displayPath, selectedTextLineLimit)
 }
 
 export class SelectionState {
@@ -203,25 +184,7 @@ export class SelectionState {
 	}
 
 	snapshotCurrent(): SelectionSnapshot | null {
-		if (!this.#current?.file) return null
-		const range = selectionLineRange(this.#current)
-		const span = rangedSpan(this.#current)
-		if (!range) return null
-
-		const snapshot: SelectionSnapshot = {
-			filePath: this.#current.file,
-			lineStart: range.lineStart,
-			lineEnd: range.lineEnd,
-			characterStart: range.characterStart,
-			characterEnd: range.characterEnd,
-			isCursor: range.isCursor
-		}
-		if (typeof span?.text === "string" && span.text.length > 0) {
-			snapshot.text = span.text
-			const textTotalCharacters = span.textTotalCharacters
-			if (Number.isInteger(textTotalCharacters)) snapshot.textTotalCharacters = textTotalCharacters as number
-		}
-		return snapshot
+		return this.#current ? (selectionSnapshotFromEvent(this.#current) ?? null) : null
 	}
 
 	describeCurrent(): string | undefined {
