@@ -168,8 +168,11 @@ Unknown `params.type` values must be ignored. The IDE should only send an event 
         "start": { "line": 10, "character": 2 },
         "end": { "line": 12, "character": 0 }
       },
-      "text": "optional selected text",
-      "textTotalCharacters": 22
+      "text": {
+        "head": "optional selected text",
+        "totalCharacters": 22,
+        "totalLines": 2
+      }
     }
   ]
 }
@@ -191,16 +194,22 @@ Notebook example:
         "start": { "line": 1, "character": 0 },
         "end": { "line": 2, "character": 5 }
       },
-      "text": "optional selected text",
-      "textTotalCharacters": 22
+      "text": {
+        "head": "optional selected text",
+        "totalCharacters": 22,
+        "totalLines": 2
+      }
     },
     {
       "cell": {
         "index": 4,
         "id": "def456"
       },
-      "text": "optional full cell text",
-      "textTotalCharacters": 23
+      "text": {
+        "head": "optional full cell text",
+        "totalCharacters": 23,
+        "totalLines": 1
+      }
     }
   ]
 }
@@ -214,8 +223,28 @@ Fields:
 - `span.range?: { start, end }` — zero-based editor range. When `span.cell` is present, range positions are relative to the cell text, not the serialized notebook file. Missing `range` with `cell` means the whole cell.
 - `span.range.start` — inclusive start position.
 - `span.range.end` — exclusive end position.
-- `span.text?: string` — selected/referenced text when cheaply available. Senders may truncate large text.
-- `span.textTotalCharacters?: number` — total character count of selected/referenced text before sender truncation. When greater than `span.text.length`, receiver may render a truncation marker.
+- `span.text?: TextExcerpt` — selected/referenced text excerpt when cheaply available. Omit for empty selections/cursors.
+- `span.text.head: string` — full selected text when small, otherwise the first N selected lines. This string itself may be character-truncated from the end.
+- `span.text.tail?: string` — last N selected lines when the sender omitted the middle or otherwise could not send full text. This string itself may be character-truncated from the beginning.
+- `span.text.totalCharacters: number` — total character count of selected/referenced text before truncation.
+- `span.text.totalLines?: number` — total selected/referenced line count before truncation.
+- `span.text.headTruncated?: boolean` — `head` was character-truncated from the end.
+- `span.text.tailTruncated?: boolean` — `tail` was character-truncated from the beginning.
+
+When selected/referenced text is too large, senders should send first and last N lines (sender-chosen N), not only a prefix. Receivers should render both edges with an omitted-text marker between them.
+
+Large excerpt example:
+
+```json
+"text": {
+  "head": "first selected lines...",
+  "tail": "...last selected lines",
+  "totalCharacters": 50000,
+  "totalLines": 1200,
+  "headTruncated": true,
+  "tailTruncated": true
+}
+```
 
 For line-only display, if `span.range.end.character === 0`, the final selected line is `span.range.end.line - 1`.
 
@@ -238,8 +267,11 @@ Ambient active editor selection changed. IDEs may send this to all connected Pi 
           "start": { "line": 10, "character": 2 },
           "end": { "line": 12, "character": 0 }
         },
-        "text": "const x = 1;\nconst y = 2;\n",
-        "textTotalCharacters": 26
+        "text": {
+          "head": "const x = 1;\nconst y = 2;\n",
+          "totalCharacters": 26,
+          "totalLines": 2
+        }
       }
     ]
   }
@@ -277,8 +309,11 @@ Explicit user action from the IDE to insert/send a file/range reference to one P
           "start": { "line": 10, "character": 2 },
           "end": { "line": 12, "character": 8 }
         },
-        "text": "selected text",
-        "textTotalCharacters": 13
+        "text": {
+          "head": "selected text",
+          "totalCharacters": 13,
+          "totalLines": 1
+        }
       }
     ]
   }

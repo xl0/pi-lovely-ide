@@ -14,6 +14,7 @@
 - [x] Events use one JSON-RPC notification method `event` plus `params.type`.
 - [x] Wire ranges are zero-based, VS Code/LSP-style `start` inclusive and `end` exclusive; Pi displays/model refs as 1-based lines.
 - [x] `selection` and `mention` share `file + spans`. Each span may be a file range, notebook-cell range, or whole notebook cell (`cell` without `range`).
+- [x] Span text uses `TextExcerpt`: small selections send full `head`; large selections send first/last lines (`head`/`tail`) with per-edge character caps.
 
 ## Decisions: VS Code IDE plugin
 
@@ -64,7 +65,7 @@ Question tree:
   - [x] Validate WS auth header before registering connection.
   - [x] Implement `hello`, store connection metadata, group by session, support `ping`.
   - [x] Add VS Code `Pi Lovely IDE` log output channel for server/lockfile/connection state plus all listened VS Code events and outgoing protocol summaries at debug without raw selected text.
-  - [x] Observe text selection events and publish selected ranges/cursor positions to subscribed conns regardless of file workspace; truncate span text payloads.
+  - [x] Observe text selection events and publish selected ranges/cursor positions to subscribed conns regardless of file workspace; send full small span text or first/last line excerpts for large spans.
   - [x] Support notebook spans: notebook cell text selections as `cell + range`; ambient notebook cell-selection events are ignored.
   - [x] Implement `Pi: Mention Selection` command and target QuickPick.
 - [x] Update Pi extension to native Pi IDE Protocol.

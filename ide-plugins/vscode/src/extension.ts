@@ -8,6 +8,7 @@ import {
 	type HelloParams,
 	type IdeEventParams,
 	type IdeSpan,
+	type IdeTextExcerpt,
 	type JsonRpcId,
 	type JsonRpcMessage,
 	PI_IDE_AUTH_HEADER,
@@ -29,14 +30,17 @@ let lockPath: string | undefined
 let logChannel: vscode.LogOutputChannel | undefined
 const connections = new Map<WebSocket, PiConnection>()
 const lastSelectionKeys = new Map<WebSocket, string>()
-const MAX_SPAN_TEXT_CHARS = 2 * 1024
+const MAX_SPAN_TEXT_EDGE_CHARS = 2 * 1024
+const MAX_SPAN_TEXT_EDGE_LINES = 20
 
 function spanSummary(span: IdeSpan): string {
 	const cell = span.cell ? ` cell=${span.cell.index ?? "?"}${span.cell.id ? `:${span.cell.id}` : ""}` : ""
 	const range = span.range
 		? ` range=${span.range.start.line}:${span.range.start.character}-${span.range.end.line}:${span.range.end.character}`
 		: " range=whole"
-	const text = typeof span.text === "string" ? ` text=${span.text.length}/${span.textTotalCharacters ?? span.text.length}` : ""
+	const text = span.text
+		? ` text=${span.text.head.length}${span.text.tail !== undefined ? `+${span.text.tail.length}` : ""}/${span.text.totalCharacters}`
+		: ""
 	return `${cell}${range}${text}`.trim()
 }
 
@@ -129,19 +133,56 @@ function subscriptions(conn: PiConnection): Set<string> {
 	return new Set(conn.hello.connection.subscriptions ?? [])
 }
 
-function maybeText(text: string, textTotalCharacters: number): Pick<IdeSpan, "text" | "textTotalCharacters"> {
-	return text.length > 0 ? { text, textTotalCharacters } : {}
+function truncateEnd(text: string, maxCharacters: number): { text: string; truncated: boolean } {
+	return text.length > maxCharacters ? { text: text.slice(0, maxCharacters), truncated: true } : { text, truncated: false }
 }
 
-function textForRange(document: vscode.TextDocument, range: vscode.Range): Pick<IdeSpan, "text" | "textTotalCharacters"> {
+function truncateStart(text: string, maxCharacters: number): { text: string; truncated: boolean } {
+	return text.length > maxCharacters ? { text: text.slice(-maxCharacters), truncated: true } : { text, truncated: false }
+}
+
+function selectedLineCount(range: vscode.Range): number {
+	if (range.end.line === range.start.line) return 1
+	return range.end.character === 0 ? range.end.line - range.start.line : range.end.line - range.start.line + 1
+}
+
+function firstLinesRange(range: vscode.Range, maxLines: number): vscode.Range {
+	if (selectedLineCount(range) <= maxLines) return range
+	return new vscode.Range(range.start, new vscode.Position(range.start.line + maxLines, 0))
+}
+
+function lastLinesRange(range: vscode.Range, maxLines: number): vscode.Range {
+	const lastSelectedLine = range.end.character === 0 && range.end.line > range.start.line ? range.end.line - 1 : range.end.line
+	const startLine = Math.max(range.start.line, lastSelectedLine - maxLines + 1)
+	const start = startLine === range.start.line ? range.start : new vscode.Position(startLine, 0)
+	return new vscode.Range(start, range.end)
+}
+
+function maybeText(text: IdeTextExcerpt): Pick<IdeSpan, "text"> {
+	return text.totalCharacters > 0 ? { text } : {}
+}
+
+function textForRange(document: vscode.TextDocument, range: vscode.Range): Pick<IdeSpan, "text"> {
 	const start = document.offsetAt(range.start)
 	const end = document.offsetAt(range.end)
 	if (end <= start) return {}
 
 	const totalCharacters = end - start
-	const prefixEnd = document.positionAt(Math.min(end, start + MAX_SPAN_TEXT_CHARS))
-	const text = document.getText(new vscode.Range(range.start, prefixEnd))
-	return maybeText(text, totalCharacters)
+	const totalLines = selectedLineCount(range)
+	if (totalLines <= MAX_SPAN_TEXT_EDGE_LINES * 2 && totalCharacters <= MAX_SPAN_TEXT_EDGE_CHARS * 2) {
+		return maybeText({ head: document.getText(range), totalCharacters, totalLines })
+	}
+
+	const head = truncateEnd(document.getText(firstLinesRange(range, MAX_SPAN_TEXT_EDGE_LINES)), MAX_SPAN_TEXT_EDGE_CHARS)
+	const tail = truncateStart(document.getText(lastLinesRange(range, MAX_SPAN_TEXT_EDGE_LINES)), MAX_SPAN_TEXT_EDGE_CHARS)
+	return maybeText({
+		head: head.text,
+		tail: tail.text,
+		totalCharacters,
+		totalLines,
+		...(head.truncated ? { headTruncated: true } : {}),
+		...(tail.truncated ? { tailTruncated: true } : {})
+	})
 }
 
 function fullDocumentRange(document: vscode.TextDocument): vscode.Range {
