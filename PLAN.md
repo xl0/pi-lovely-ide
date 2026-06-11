@@ -56,7 +56,7 @@ Question tree:
 - [x] Create shared protocol package/module.
   - [x] `packages/protocol` or repo-local equivalent named for eventual `@xl0/pi-ide-protocol`.
   - [x] Export wire constants: protocol name/version and auth header.
-  - [x] Export TypeBox schemas + TS types for lockfile, JSON-RPC envelope, `hello`, `event`, spans, and parsed IDE messages.
+  - [x] Export protocol schemas + inferred TS types for lockfile, JSON-RPC envelope, `hello`, `event`, spans, and parsed IDE messages.
 - [x] Add VS Code plugin under `ide-plugins/vscode`.
   - [x] Subpackage setup with VS Code engine, ESM TypeScript compile, activation events, command contribution.
   - [x] Start local WS server on activation, choose free port, generate token, write `~/.pi/ide/<port>.lock`.

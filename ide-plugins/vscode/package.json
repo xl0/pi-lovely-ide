@@ -50,8 +50,8 @@
 		"@types/ws": "^8.5.0",
 		"@vscode/vsce": "^3.0.0",
 		"esbuild": "^0.25.0",
-		"typebox": "^1.2.2",
 		"typescript": "^5.5.0",
+		"valibot": "^1.4.0",
 		"ws": "^8.18.0"
 	}
 }

@@ -5,8 +5,7 @@ import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type ContextEvent, type ExtensionAPI, type ExtensionContext, getAgentDir, highlightCode } from "@earendil-works/pi-coding-agent"
 import { Text } from "@earendil-works/pi-tui"
-import Type, { type Static } from "typebox"
-import { Compile } from "typebox/compile"
+import * as v from "valibot"
 import {
 	type HelloParams,
 	type IdeLockFile,
@@ -43,17 +42,13 @@ interface DiscoveredIde {
 	lock: IdeLockFile
 }
 
-const DebugNotificationDetailsSchema = Type.Object(
-	{
-		method: Type.String(),
-		pretty: Type.String(),
-		originalLength: Type.Integer({ minimum: 0 }),
-		truncated: Type.Boolean()
-	},
-	{ additionalProperties: true }
-)
-type DebugNotificationDetails = Static<typeof DebugNotificationDetailsSchema>
-const DebugNotificationDetailsValidator = Compile(DebugNotificationDetailsSchema)
+const DebugNotificationDetailsSchema = v.looseObject({
+	method: v.string(),
+	pretty: v.string(),
+	originalLength: v.pipe(v.number(), v.integer(), v.minValue(0)),
+	truncated: v.boolean()
+})
+type DebugNotificationDetails = v.InferOutput<typeof DebugNotificationDetailsSchema>
 
 export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let currentCtx: ExtensionContext | null = null
@@ -168,7 +163,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	}
 
 	function validateDebugNotificationDetails(value: unknown): DebugNotificationDetails | undefined {
-		return DebugNotificationDetailsValidator.Check(value) ? value : undefined
+		const result = v.safeParse(DebugNotificationDetailsSchema, value)
+		return result.success ? result.output : undefined
 	}
 
 	function clearDebugNotificationMessages(): void {
@@ -209,10 +205,10 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} ${pid}${selectionText ? ` ${selectionText}` : ""}`)
 	}
 
-	function debugNotifyRawIdeNotification(message: JsonRpcMessage, raw: string): void {
+	function debugNotifyRawIdeNotification(message: JsonRpcMessage): void {
 		if (!config.debugNotifications) return
 		if (message.id != null || message.method == null) return
-		const pretty = JSON.stringify(JSON.parse(raw), null, "\t")
+		const pretty = JSON.stringify(message, null, 2)
 		pi.sendMessage<DebugNotificationDetails>(
 			{
 				customType: DEBUG_NOTIFICATION_CUSTOM_TYPE,
@@ -229,8 +225,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		)
 	}
 
-	function handleMessage(message: JsonRpcMessage, raw: string, activeConnection: IdeConnection): void {
-		debugNotifyRawIdeNotification(message, raw)
+	function handleMessage(message: JsonRpcMessage, _raw: string, activeConnection: IdeConnection): void {
+		debugNotifyRawIdeNotification(message)
 		if (message.id != null && message.method != null) {
 			activeConnection.send({ jsonrpc: "2.0", id: message.id, result: {} })
 			return

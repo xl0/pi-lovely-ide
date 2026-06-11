@@ -1,5 +1,4 @@
-import Type, { type Static } from "typebox"
-import { Compile } from "typebox/compile"
+import * as v from "valibot"
 
 export const PI_IDE_PROTOCOL = "pi-ide"
 export const PI_IDE_PROTOCOL_VERSION = 1
@@ -8,149 +7,102 @@ export const PI_IDE_AUTH_HEADER = "X-Pi-Ide-Authorization"
 export type IdeMethod = "hello" | "event" | "ping"
 export type IdeEventType = "selection" | "mention"
 
-export const JsonRpcIdSchema = Type.Union([Type.String(), Type.Number()])
-export type JsonRpcId = Static<typeof JsonRpcIdSchema>
+export const JsonRpcIdSchema = v.union([v.string(), v.number()])
+export type JsonRpcId = v.InferOutput<typeof JsonRpcIdSchema>
 
-export const JsonRpcMessageSchema = Type.Object(
-	{
-		jsonrpc: Type.Optional(Type.Literal("2.0")),
-		id: Type.Optional(JsonRpcIdSchema),
-		method: Type.Optional(Type.String()),
-		params: Type.Optional(Type.Unknown()),
-		result: Type.Optional(Type.Unknown()),
-		error: Type.Optional(Type.Unknown())
-	},
-	{ additionalProperties: true }
-)
-export type JsonRpcMessage = Static<typeof JsonRpcMessageSchema>
-export const JsonRpcMessageValidator = Compile(JsonRpcMessageSchema)
+export const JsonRpcMessageSchema = v.looseObject({
+	jsonrpc: v.optional(v.literal("2.0")),
+	id: v.optional(JsonRpcIdSchema),
+	method: v.optional(v.string()),
+	params: v.optional(v.unknown()),
+	result: v.optional(v.unknown()),
+	error: v.optional(v.unknown())
+})
+export type JsonRpcMessage = v.InferOutput<typeof JsonRpcMessageSchema>
 
-export const IdeLockFileSchema = Type.Object(
-	{
-		protocol: Type.Literal(PI_IDE_PROTOCOL),
-		version: Type.Literal(PI_IDE_PROTOCOL_VERSION),
-		port: Type.Integer({ minimum: 1, maximum: 65535 }),
-		pid: Type.Optional(Type.Integer({ minimum: 1 })),
-		workspaces: Type.Array(Type.String()),
-		ide: Type.Optional(Type.String()),
-		token: Type.String({ minLength: 1 })
-	},
-	{ additionalProperties: true }
-)
-export type IdeLockFile = Static<typeof IdeLockFileSchema>
-export const IdeLockFileValidator = Compile(IdeLockFileSchema)
+export const IdeLockFileSchema = v.looseObject({
+	protocol: v.literal(PI_IDE_PROTOCOL),
+	version: v.literal(PI_IDE_PROTOCOL_VERSION),
+	port: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65535)),
+	pid: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+	workspaces: v.array(v.string()),
+	ide: v.optional(v.string()),
+	token: v.pipe(v.string(), v.minLength(1))
+})
+export type IdeLockFile = v.InferOutput<typeof IdeLockFileSchema>
 
-export const PositionSchema = Type.Object(
-	{
-		line: Type.Integer({ minimum: 0 }),
-		character: Type.Integer({ minimum: 0 })
-	},
-	{ additionalProperties: true }
-)
-export type IdePosition = Static<typeof PositionSchema>
+export const PositionSchema = v.looseObject({
+	line: v.pipe(v.number(), v.integer(), v.minValue(0)),
+	character: v.pipe(v.number(), v.integer(), v.minValue(0))
+})
+export type IdePosition = v.InferOutput<typeof PositionSchema>
 
-export const RangeSchema = Type.Object(
-	{
-		start: PositionSchema,
-		end: PositionSchema
-	},
-	{ additionalProperties: true }
-)
-export type IdeRange = Static<typeof RangeSchema>
+export const RangeSchema = v.looseObject({
+	start: PositionSchema,
+	end: PositionSchema
+})
+export type IdeRange = v.InferOutput<typeof RangeSchema>
 
-export const CellAddressSchema = Type.Object(
-	{
-		index: Type.Optional(Type.Integer({ minimum: 0 })),
-		id: Type.Optional(Type.String())
-	},
-	{ additionalProperties: true }
-)
-export type NotebookCellAddress = Static<typeof CellAddressSchema>
+export const CellAddressSchema = v.looseObject({
+	index: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+	id: v.optional(v.string())
+})
+export type NotebookCellAddress = v.InferOutput<typeof CellAddressSchema>
 
-export const TextExcerptSchema = Type.Object(
-	{
-		head: Type.String(),
-		tail: Type.Optional(Type.String()),
-		totalCharacters: Type.Integer({ minimum: 0 }),
-		totalLines: Type.Optional(Type.Integer({ minimum: 0 })),
-		headTruncated: Type.Optional(Type.Boolean()),
-		tailTruncated: Type.Optional(Type.Boolean())
-	},
-	{ additionalProperties: true }
-)
-export type IdeTextExcerpt = Static<typeof TextExcerptSchema>
+export const TextExcerptSchema = v.looseObject({
+	head: v.string(),
+	tail: v.optional(v.string()),
+	totalCharacters: v.pipe(v.number(), v.integer(), v.minValue(0)),
+	totalLines: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+	headTruncated: v.optional(v.boolean()),
+	tailTruncated: v.optional(v.boolean())
+})
+export type IdeTextExcerpt = v.InferOutput<typeof TextExcerptSchema>
 
-export const SpanSchema = Type.Object(
-	{
-		cell: Type.Optional(CellAddressSchema),
-		range: Type.Optional(RangeSchema),
-		text: Type.Optional(TextExcerptSchema)
-	},
-	{ additionalProperties: true }
-)
-export type IdeSpan = Static<typeof SpanSchema>
+export const SpanSchema = v.looseObject({
+	cell: v.optional(CellAddressSchema),
+	range: v.optional(RangeSchema),
+	text: v.optional(TextExcerptSchema)
+})
+export type IdeSpan = v.InferOutput<typeof SpanSchema>
 
-export const EventParamsSchema = Type.Object(
-	{
-		type: Type.Union([Type.Literal("selection"), Type.Literal("mention")]),
-		file: Type.Union([Type.String(), Type.Null()]),
-		spans: Type.Array(SpanSchema)
-	},
-	{ additionalProperties: true }
-)
-export type IdeEventParams = Static<typeof EventParamsSchema>
-export const EventParamsValidator = Compile(EventParamsSchema)
+export const EventParamsSchema = v.looseObject({
+	type: v.union([v.literal("selection"), v.literal("mention")]),
+	file: v.union([v.string(), v.null_()]),
+	spans: v.array(SpanSchema)
+})
+export type IdeEventParams = v.InferOutput<typeof EventParamsSchema>
 
-export const HelloParamsSchema = Type.Object(
-	{
-		version: Type.Literal(PI_IDE_PROTOCOL_VERSION),
-		client: Type.Object(
-			{
-				name: Type.String(),
-				version: Type.Optional(Type.String()),
-				pid: Type.Integer({ minimum: 1 }),
-				mode: Type.Optional(Type.String())
-			},
-			{ additionalProperties: true }
-		),
-		session: Type.Object(
-			{
-				id: Type.String(),
-				name: Type.Optional(Type.String())
-			},
-			{ additionalProperties: true }
-		),
-		connection: Type.Object(
-			{
-				id: Type.String(),
-				subscriptions: Type.Optional(Type.Array(Type.String()))
-			},
-			{ additionalProperties: true }
-		),
-		workspace: Type.String()
-	},
-	{ additionalProperties: true }
-)
-export type HelloParams = Static<typeof HelloParamsSchema>
-export const HelloParamsValidator = Compile(HelloParamsSchema)
+export const HelloParamsSchema = v.looseObject({
+	version: v.literal(PI_IDE_PROTOCOL_VERSION),
+	client: v.looseObject({
+		name: v.string(),
+		version: v.optional(v.string()),
+		pid: v.pipe(v.number(), v.integer(), v.minValue(1)),
+		mode: v.optional(v.string())
+	}),
+	session: v.looseObject({
+		id: v.string(),
+		name: v.optional(v.string())
+	}),
+	connection: v.looseObject({
+		id: v.string(),
+		subscriptions: v.optional(v.array(v.string()))
+	}),
+	workspace: v.string()
+})
+export type HelloParams = v.InferOutput<typeof HelloParamsSchema>
 
-export const HelloResultSchema = Type.Object(
-	{
-		version: Type.Literal(PI_IDE_PROTOCOL_VERSION),
-		ide: Type.Optional(
-			Type.Object(
-				{
-					name: Type.String(),
-					version: Type.Optional(Type.String())
-				},
-				{ additionalProperties: true }
-			)
-		)
-	},
-	{ additionalProperties: true }
-)
-export type HelloResult = Static<typeof HelloResultSchema>
-export const HelloResultValidator = Compile(HelloResultSchema)
+export const HelloResultSchema = v.looseObject({
+	version: v.literal(PI_IDE_PROTOCOL_VERSION),
+	ide: v.optional(
+		v.looseObject({
+			name: v.string(),
+			version: v.optional(v.string())
+		})
+	)
+})
+export type HelloResult = v.InferOutput<typeof HelloResultSchema>
 
 export interface ParsedIdeEventMessage {
 	kind: "event"
@@ -181,7 +133,7 @@ export type ParsedIdeMessage = ParsedIdeEventMessage | ParsedIdeHelloMessage | P
 
 export function parseJsonRpcMessage(raw: string): JsonRpcMessage | undefined {
 	try {
-		return JsonRpcMessageValidator.Parse(JSON.parse(raw))
+		return v.parse(JsonRpcMessageSchema, JSON.parse(raw))
 	} catch {
 		return undefined
 	}
@@ -193,7 +145,7 @@ export function parseIdeJsonRpcMessage(message: JsonRpcMessage): ParsedIdeMessag
 		if (params) return { kind: "event", type: params.type, params, message }
 	}
 
-	if (message.method === "hello" && message.id != null && HelloParamsValidator.Check(message.params)) {
+	if (message.method === "hello" && message.id != null && v.is(HelloParamsSchema, message.params)) {
 		return { kind: "hello", id: message.id, params: message.params, message }
 	}
 
@@ -211,7 +163,7 @@ export function parseIdeMessage(raw: string): ParsedIdeMessage | undefined {
 
 export function parseIdeLockFile(raw: string): IdeLockFile | undefined {
 	try {
-		return IdeLockFileValidator.Parse(JSON.parse(raw))
+		return v.parse(IdeLockFileSchema, JSON.parse(raw))
 	} catch {
 		return undefined
 	}
@@ -220,11 +172,10 @@ export function parseIdeLockFile(raw: string): IdeLockFile | undefined {
 export function parseIdeEventParams(value: unknown): IdeEventParams | undefined {
 	let params: IdeEventParams
 	try {
-		params = EventParamsValidator.Parse(value)
+		params = v.parse(EventParamsSchema, value)
 	} catch {
 		return undefined
 	}
-	// Empty spans with a file is a whole-file reference; without a file it is no active reference.
 	if (params.file === null) return params.spans.length === 0 ? params : undefined
 	for (const span of params.spans) {
 		if (!span.range && !span.cell) return undefined

@@ -1,6 +1,7 @@
 import { WebSocket } from "undici"
+import * as v from "valibot"
 import type { HelloParams, JsonRpcMessage } from "../../packages/protocol/src/index.js"
-import { HelloResultValidator, PI_IDE_AUTH_HEADER, parseJsonRpcMessage } from "../../packages/protocol/src/index.js"
+import { HelloResultSchema, PI_IDE_AUTH_HEADER, parseJsonRpcMessage } from "../../packages/protocol/src/index.js"
 
 const CONNECT_TIMEOUT_MS = 3_000
 
@@ -74,7 +75,7 @@ export class IdeConnection {
 						fail(new Error(`hello failed: ${JSON.stringify(msg.error)}`))
 						return
 					}
-					if (!HelloResultValidator.Check(msg.result)) {
+					if (!v.is(HelloResultSchema, msg.result)) {
 						fail(new Error(`hello failed: invalid result ${JSON.stringify(msg.result)}`))
 						return
 					}
