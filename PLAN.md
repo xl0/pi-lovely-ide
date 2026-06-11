@@ -13,7 +13,7 @@
 - [x] IDE groups multiple connections by `session.id`; routes events by `connection.subscriptions`.
 - [x] Events use one JSON-RPC notification method `event` plus `params.type`.
 - [x] Wire ranges are zero-based inclusive display/reference ranges; editor APIs with half-open ranges adapt before sending, including omitting VS Code's trailing full-line-selection newline from text excerpts.
-- [x] `selection` and `mention` share `file + spans`. Each span may be a file range, notebook-cell range, or whole notebook cell (`cell` without `range`).
+- [x] `selection` and `mention` share `file + spans`. Empty `spans` with a file means whole file; otherwise each span may be whole notebook cell or optional cell-relative/file range.
 - [x] Span text uses `TextExcerpt`: small selections send full `head`; large selections send first/last lines (`head`/`tail`) with per-edge character caps.
 
 ## Decisions: VS Code IDE plugin
@@ -28,7 +28,7 @@
 
 ## Follow-ups deferred
 
-- [ ] Notebook selection/mention UX: VS Code now sends cell-relative text ranges for active notebook cell text selections, whole-cell spans for notebook cell selections/mention, and keeps notebook selections stable across scroll-driven active-editor churn; Pi display/context still treats ranges as file line refs and does not render cell addresses. Finish after notebook execution model lands.
+- [x] Notebook selection/mention UX: VS Code sends cell-relative text ranges and Pi renders/pastes notebook cell addresses in mentions, status, and context tags.
 
 ## Notebook follow-up decisions still open
 

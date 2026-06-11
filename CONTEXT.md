@@ -5,11 +5,11 @@ Terminology for how pi-lovely-ide exposes IDE state to the coding agent.
 ## Language
 
 **IDE Selection**:
-The active non-empty text range reported by the connected IDE, including file path and range; may include selected text.
-_Avoid_: cursor, editor state, selection update
+The active file reference reported by the connected IDE, including file path plus optional text range and optional notebook cell address; may include selected text.
+_Avoid_: editor state, selection update
 
 **Selection Snapshot**:
-The file path and 1-based line range captured from the IDE Selection at user submit, with optional selected text excerpt containing first/last edges and total counts.
+The file path, optional Notebook Cell Address, and optional 1-based line range captured from the IDE Selection at user submit, with optional selected text excerpt containing first/last edges and total counts.
 _Avoid_: live selection, character-counted selection, current selection during turn
 
 **Selection Context**:
@@ -17,7 +17,7 @@ Transient model context built from a Selection Snapshot for an initial idle user
 _Avoid_: message history, at mention, live IDE state
 
 **At Mention**:
-An explicit IDE-originated file/range reference inserted into the user's editor message; wire payload uses zero-based line/character range and may include referenced text, while inserted editor text is 1-based.
+An explicit IDE-originated file/range/cell reference inserted into the user's editor message; wire payload uses zero-based line/character range and may include referenced text, while inserted editor text is 1-based.
 _Avoid_: selection context, ambient context
 
 **Pi IDE Protocol**:
@@ -37,7 +37,7 @@ The event types a specific Pi IDE WebSocket connection asks the IDE to send, cur
 _Avoid_: capability, tool permission, purpose
 
 **IDE Span**:
-One selected or mentioned span in a Pi IDE Protocol event. It may be a text range in a file, a text range inside a notebook cell, or a whole notebook cell.
+One selected or mentioned span in a Pi IDE Protocol event. It may be a text range in a file, a whole notebook cell, or a text range inside a notebook cell; whole-file references use empty `spans` with a non-null file.
 _Avoid_: event, connection, serialized notebook range
 
 **Notebook Cell Address**:
