@@ -60,6 +60,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let pendingMentions: MentionSnapshot[] = []
 	let pendingPromptMentions: MentionSnapshot[] = []
 	let selectionPreviewRefresh: (() => void) | null = null
+	const debugNotificationViews = new Set<Text>()
 
 	const config = new ConfigState()
 	const selection = new SelectionState(displayPath)
@@ -174,11 +175,17 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		}
 	}
 
+	function clearDebugNotificationMessages(): void {
+		for (const view of debugNotificationViews) view.setText("")
+	}
+
 	pi.registerMessageRenderer<DebugNotificationDetails>(DEBUG_NOTIFICATION_CUSTOM_TYPE, message => {
 		const details = parseDebugNotificationDetails(message.details)
-		if (!details) return undefined
+		if (!details || !config.debugNotifications) return new Text("", 0, 0)
 		const suffix = details.truncated ? `\n… (${details.originalLength} chars)` : ""
-		return new Text(`IDE raw ${details.method}:\n${highlightCode(details.pretty, "json").join("\n")}${suffix}`, 1, 0)
+		const view = new Text(`IDE raw ${details.method}:\n${highlightCode(details.pretty, "json").join("\n")}${suffix}`, 1, 0)
+		debugNotificationViews.add(view)
+		return view
 	})
 
 	pi.registerMessageRenderer<IdeContextDetails>(IDE_CONTEXT_CUSTOM_TYPE, message => {
@@ -362,7 +369,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		selectionSnapshot: () => selection.snapshotCurrent(),
 		setSelectionPreviewRefresh: refresh => {
 			selectionPreviewRefresh = refresh
-		}
+		},
+		clearDebugNotificationMessages
 	})
 
 	pi.on("input", (event, ctx) => {
@@ -422,6 +430,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		pendingSelection = undefined
 		pendingMentions = []
 		pendingPromptMentions = []
+		debugNotificationViews.clear()
 		disconnect()
 		currentCtx?.ui.setStatus(STATUS_KEY, undefined)
 	})
