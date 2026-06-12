@@ -118,7 +118,7 @@ export function formatSelectedText(
 	if (selectedTextLineLimit === 0) return undefined
 	const edgeLines = Math.max(1, Math.floor(selectedTextLineLimit / 2))
 	const headLines = linesOf(excerpt.head)
-	if (headLines.length <= selectedTextLineLimit && excerpt.tail === undefined) {
+	if (headLines.length <= selectedTextLineLimit && excerpt.tail === undefined && !excerpt.headTruncated) {
 		return excerpt.head
 	}
 
