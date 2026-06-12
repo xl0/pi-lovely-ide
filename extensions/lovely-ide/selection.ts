@@ -206,6 +206,6 @@ export class SelectionState {
 
 	describeCurrent(): string {
 		if (!this.#current) return ""
-		return formatSnapshotReference(this.#current, this.displayPath)
+		return formatSnapshotReference(this.#current, this.displayPath, { collapseCursor: true })
 	}
 }
