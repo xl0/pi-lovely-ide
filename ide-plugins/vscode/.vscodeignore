@@ -9,3 +9,4 @@ yarn.lock
 *.vsix
 .vscodeignore
 dist/**/*.map
+.env

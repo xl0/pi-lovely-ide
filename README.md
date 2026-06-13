@@ -4,8 +4,6 @@ Pi package for the Lovely IDE integration extension.
 
 ## How it works
 
-[![Demo](./demo.gif)](https://github.com/xl0/pi-lovely-ide/releases/download/demo/demo.mp4)
-
 `@xl0/pi-lovely-ide` is the Pi-side package. The IDE-side plugin is distributed separately through the VS Code Marketplace.
 
 ## Install Pi package
