@@ -1,21 +1,232 @@
 # Codebase
 
-Pi package `@xl0/pi-lovely-ide` in repo `xl0/pi-lovely-ide`. Published npm package contains one Pi extension in `extensions/lovely-ide/` and a shared Pi IDE Protocol module in `packages/protocol/src/`. Repo also contains a separately distributed VS Code plugin subpackage in `ide-plugins/vscode/`. Root TS config stays strict, including `exactOptionalPropertyTypes`. Root `devDependencies` and peer dep use normal `@earendil-works/pi-coding-agent` semver ranges; local co-dev links should be outside package metadata.
+## Overview
 
-Shared protocol module exports Pi IDE Protocol v1 wire constants, method/event TS unions, Valibot schemas, inferred TS types, JSON parse helpers for lockfiles and JSON-RPC envelopes, plus `parseIdeMessage`/`parseIdeJsonRpcMessage` classification for `hello`, `event`, and `ping`. Consumers now call Valibot directly (`v.parse`/`v.is`) instead of wrapper validators. Canonical protocol docs are `PI_IDE_PROTOCOL.md`; `CC_IDE_PROTOCOL.md` is historical only.
+`@xl0/pi-lovely-ide` is a Pi package that bridges Pi with IDEs over the Pi IDE Protocol.
 
-Pi extension: `index.ts` owns IDE discovery/reconnect policy/event effects/status/pending selection+mention snapshots, `connection.ts` owns undici WebSocket connect/hello/JSON-RPC framing, `config.ts` owns persisted config, `selection.ts` owns current IDE Selection state + formatting + snapshot schemas, `mention.ts` owns native mention event formatting/reference matching, `context.ts` owns combined IDE context marker schema validation/rendering/injection, and `command.ts` owns `/ide` UI. Targets Pi's Node runtime and imports `WebSocket` from `undici`. Shared protocol and extension-local runtime validation now use Valibot.
+- Published npm package includes:
+  - Pi extension in `extensions/lovely-ide/`.
+  - Shared protocol module in `packages/protocol/src/`.
+- Repo also includes separately distributed VS Code extension in `ide-plugins/vscode/`.
+- Canonical protocol doc: `PI_IDE_PROTOCOL.md`.
+- `CC_IDE_PROTOCOL.md` is historical Claude Code reference only.
+- Root TS config is strict, including `exactOptionalPropertyTypes`.
+- Root scripts type-check/check both Pi package and VS Code subpackage.
+- Runtime validation uses Valibot in shared protocol and extension-local state.
 
-The extension discovers pi-native IDE WebSocket lockfiles from Pi's user config parent plus `ide` (normally `~/.pi/ide`) on `session_start`, matching only `protocol: "pi-ide"`, `version: 1`, matching port, token, live advisory PID when present, and an IDE workspace root equal to or ancestor of Pi `cwd`. Connection attempts use a 3s timeout and concurrent connects are skipped/blocked. It sends `hello` with protocol `version`, client name/derived package version/PID/mode, Pi session id/name, a random connection id, subscriptions `selection`/`mention`, and workspace, and validates the hello result.
+## Shared protocol module
 
-Runtime state: one WebSocket, connected IDE metadata, current Pi extension context, `ConfigState` booleans (`autoConnectOnStartup`, `autoReconnect`, `selectionContext`, `displaySelectionMessages`, `debugNotifications`), `SelectionState` current IDE Selection helpers, a closure-scoped pending per-turn Selection Snapshot, pending pasted mention snapshots, and pending prompt mention snapshots captured before Pi expands `@` references. It replies `{}` to IDE-initiated JSON-RPC requests including `ping`, handles native `event` notifications, stores native `selection` events as the first span or whole-file snapshot when `file` is set and `spans` is empty, and handles `mention` by pasting a 1-based `@file#line:char-line:char`, `@file`, or notebook `@file[cell id|1-based-index]#line:char-line:char`/`@file[cell ...]` reference plus trailing space into active Pi editor message while remembering the referenced selection. Optional debug notifications append display-only custom messages (`lovely-ide.debugNotification`) for incoming IDE JSON-RPC notifications. They pretty-print parsed notification JSON with 2-space indentation, syntax-highlight via Pi's JSON highlighter, truncate at 4KB, are stripped from model context, and already-rendered debug notification text is cleared when the toggle is turned off.
+`packages/protocol/src/index.ts` exports Pi IDE Protocol v1 constants, schemas, types, and parsers.
 
-Selection Context is on by default. For an idle interactive/RPC prompt with an IDE Selection, `input` snapshots file path, optional notebook cell address, and optional 1-based line/character range by adding 1 to IDE wire start/end line and character positions; IDE wire ranges are intended as inclusive display/reference ranges and are cell-relative when `cell` exists. Non-empty selected text is included by default as a protocol `TextExcerpt` (`head`, optional `tail`, total character/line counts, truncation flags); configurable displayed line budget `selectedTextLineLimit` cycles `off`/`3`/`5`/`9` in `/ide`; over-budget selections show head/tail with `[... N lines ... ]` or `[... omitted text ... ]` between. For idle interactive/RPC prompts only, `before_agent_start` stores one `lovely-ide.context` custom message when there are pasted IDE mentions and/or a pending ambient selection; `details` is `{ mentions, selection }`, content is empty, and it displays without a header only when `displaySelectionMessages` is enabled. When `selectionContext` is on and ambient selection context will be injected for that prompt (`selection` snapshot present, no valid IDE mentions taking precedence), `before_agent_start` also appends one extra system-prompt line telling model `<selection>`/`<cursor>` blocks may be irrelevant and should be ignored when unrelated. Pasted IDE mentions whose ref text remains in raw `input` text share that marker and stale pending mentions are cleared. Steer/follow-up prompts keep only the pasted plain `@` ref and do not get rich IDE context. `context` drops all such markers, then appends valid mention refs as formatted `<mention file="..." cellId="..." cellIndex="N" ref="@..." range="line:char-line:char">...</mention>`/self-closed mention/cursor mention/no-range mention onto the preceding user message content; if the message has at least one valid mention, ambient selection is skipped for that message. Otherwise the latest marker's ambient selection is appended as `<selection file="..." cellId="..." cellIndex="N" range="line:char-line:char">...</selection>`, self-closed `<selection ... />`, or `<cursor file="..." position="line:char" />`.
+- Constants:
+  - `PI_IDE_PROTOCOL = "pi-ide"`.
+  - `PI_IDE_PROTOCOL_VERSION = 1`.
+  - `PI_IDE_AUTH_HEADER = "X-Pi-Ide-Authorization"`.
+- Wire methods/events:
+  - Methods: `hello`, `event`, `ping`.
+  - Events: `selection`, `mention`.
+- Schemas/types cover:
+  - JSON-RPC-ish envelopes.
+  - IDE lockfiles.
+  - hello params/result.
+  - event params.
+  - file/cell spans, inclusive ranges, and `TextExcerpt`.
+- Parsers:
+  - `parseJsonRpcMessage(raw)`.
+  - `parseIdeJsonRpcMessage(message)`.
+  - `parseIdeMessage(raw)`.
+  - `parseIdeLockFile(raw)`.
+  - `parseIdeEventParams(value)`.
+- `parseIdeEventParams` rejects spans without either `range` or `cell`, except `file: null` with no spans.
 
-Footer status uses key `lovely-ide`; shows connection state, IDE name, PID, and current cursor/selection as `file#line:char`, `file#line:char-line:char`, or notebook `file[cell id|1-based-index]#...`. When both auto flags are off, shows "IDE disabled" (muted); otherwise disconnected shows "IDE disconnected" (error). Footer cursor/selection display is independent of Selection Context.
+## Pi extension layout
 
-`/ide` shows a `ctx.ui.custom(...)` selector with a live Selection Context preview above the options when Selection Context is enabled, using current IDE selection when connected/non-empty and a selected-code example otherwise; while open, native IDE selection events refresh the preview in real time. Then it lists discovered IDE endpoints, five boolean toggle items (auto-connect on startup, auto-reconnect on loss, selection context, display context messages, debug raw IDE notifications), a selection text line limit cycle (`off`/`3`/`5`/`9`), and a Disconnect option. Arrow keys navigate, Space toggles/cycles config items live and refreshes the preview, Enter accepts the selected action, Esc cancels. Current connection is pre-selected. Config is persisted to `<project>/.pi/xl0-lovely-ide.json` and loaded on `session_start`.
+`extensions/lovely-ide/` contains one Pi extension.
 
-VS Code plugin: ESM subpackage under `ide-plugins/vscode` with Marketplace name `pi-lovely-ide` / extension ID `xl0.pi-lovely-ide`, `package.json` (VS Code engine `^1.100.0` for Node extension-host ESM support), `tsconfig.json` (`module`/`moduleResolution` `Node16`), `.vscodeignore`, `README`, `PUBLISH_TODO.md` (publish checklist, including current PAT flow notes/workarounds), `LICENSE`, `CHANGELOG`, and `src/extension.ts`. Root `dev-install-vscode-plugin.sh [ide-cli]` installs deps, packages the VSIX, and installs it via `code` by default or e.g. `cursor`. Root `.vscode/launch.json` runs an Extension Development Host using `ide-plugins/vscode`; `.vscode/tasks.json` compiles it first. Root `typecheck` runs the VS Code plugin typecheck via `cd ide-plugins/vscode && bun run typecheck`; root `check` also runs the VS Code plugin `check`. VSIX packaging follows VS Code docs: `tsc --noEmit` type-checks, `esbuild.mjs` bundles/minifies CommonJS to `dist/extension.cjs`, and `.vscodeignore` excludes `node_modules`, TS source/config, lockfiles, and maps. On activation it creates VS Code log output channel `Pi Lovely IDE`, starts one local `ws` server per extension host/window, generates a random token, writes `~/.pi/ide/<port>.lock` with `vscode.env.appName` as IDE name, updates lockfile on workspace folder changes, removes own lock on deactivate, and opportunistically deletes safe stale `pi-ide` locks with dead PID. It validates `X-Pi-Ide-Authorization`, accepts `hello`, stores connections by socket, responds to `ping`, and waits for future selection events rather than sending current selection on hello. Ambient selection publishing listens only to `onDidChangeTextEditorSelection`: text selections and cursor positions are sent to subscribed Pi connections regardless of file workspace; VS Code half-open selections ending at column 0 are mapped to the previous line's last character for protocol ranges and text excerpts exclude that trailing newline; span text excerpts send full text when small, otherwise first/last 20 selected lines with each edge capped at 2048 chars (`tail` capped from the beginning), and notebook cell text selections/cursors are mapped to notebook file + cell address + cell-relative range by matching against the active notebook editor only. Notebook editor selection events, active editor changes, and visible-range changes are not used for ambient selection. Mention uses only the active text editor selection; notebook cell documents must resolve to the active notebook editor cell, otherwise mention shows a warning and sends nothing. QuickPick target selection is used when multiple Pi connections subscribe. Debug logs cover server/lockfile/connection state, listened VS Code text selection events, and outgoing protocol summaries without raw selected text.
+- `index.ts` owns lifecycle, IDE discovery/reconnect, event effects, footer status,
+  pending selection/mention snapshots, debug notifications, and context hook wiring.
+- `connection.ts` owns undici WebSocket connect, timeout, auth header, hello request,
+  hello result validation, JSON-RPC framing, and close handling.
+- `config.ts` owns persisted config in `<project>/.pi/xl0-lovely-ide.json`.
+- `selection.ts` owns current IDE selection state, display formatting, snapshot schema,
+  line-budgeted selected-text rendering, and notebook/cursor formatting helpers.
+- `mention.ts` owns native mention event formatting, `@file` ref generation, and matching
+  pending pasted refs against raw prompt text.
+- `context.ts` owns `lovely-ide.context` marker schema validation, display rendering,
+  model-context injection, and marker stripping.
+- `command.ts` owns `/ide` selector UI.
 
-No tools, custom footer, or IDE tool calls.
+The extension targets Pi's Node runtime and imports `WebSocket` from `undici`.
+
+## IDE discovery and connection
+
+IDE servers advertise lockfiles in Pi's user config parent plus `ide`
+(normally `~/.pi/ide/<port>.lock`). Discovery runs on `session_start` and in `/ide`.
+
+Pi accepts a lockfile only when:
+
+- filename port parses and matches `lock.port`;
+- `protocol` is `pi-ide` and `version` is `1`;
+- token is present;
+- advisory PID is alive when present;
+- Pi `cwd` equals or descends from one advertised workspace root.
+
+Connection behavior:
+
+- One active WebSocket at a time.
+- Concurrent connection attempts are skipped/blocked.
+- Connect timeout is 3s.
+- Hello includes protocol version, client name/version/PID/mode, Pi session id/name,
+  random connection id, subscriptions `selection`/`mention`, and workspace.
+- Hello result is validated.
+- IDE-initiated JSON-RPC requests, including `ping`, get `{}` result.
+- Incoming `event` notifications are parsed via shared protocol helpers.
+- Auto-connect and auto-reconnect are governed by persisted config.
+
+## Selection, mentions, and model context
+
+Selection Context is enabled by default.
+
+IDE wire ranges are zero-based inclusive display/reference ranges. Pi displays and injects
+them as 1-based line/character positions. Notebook ranges are cell-relative when `cell`
+is present.
+
+Selection events:
+
+- Store current selection for footer, `/ide` preview, and next prompt context.
+- Use first span when spans are present.
+- Empty `spans` with `file` means whole file.
+- Cursor selections are represented as same-position ranges.
+- Non-empty selected text is stored as `TextExcerpt` when supplied.
+
+Mention events:
+
+- Paste a plain Pi `@` reference plus trailing space into active editor.
+- Remember referenced snapshot so next eligible prompt can receive rich IDE context.
+- References support files, ranges, cursors, whole notebook cells, and notebook cell ranges:
+  `@file`, `@file#line:char-line:char`,
+  `@file[cell id|1-based-index]`, and
+  `@file[cell id|1-based-index]#line:char-line:char`.
+
+Prompt/context flow:
+
+- Only idle interactive/RPC prompts get rich selection context.
+- `before_agent_start` stores one `lovely-ide.context` custom message when prompt has valid
+  pasted IDE mentions and/or pending ambient selection.
+- Context marker content is empty; structured data lives in `details`.
+- Marker display is controlled by `displaySelectionMessages`.
+- If ambient selection will be injected and no valid mention takes precedence,
+  `before_agent_start` adds one system-prompt guideline telling model that
+  `<selection>`/`<cursor>` blocks may be irrelevant.
+- `context` strips all extension markers and debug notifications from model messages.
+- Valid mentions are appended to preceding user message as `<mention ...>...</mention>`
+  or self-closed tags.
+- If message has any valid mention, ambient selection is skipped for that message.
+- Otherwise latest ambient selection is appended as `<selection ...>...</selection>`,
+  self-closed `<selection ... />`, or `<cursor ... />`.
+- Steer/follow-up prompts keep only the plain pasted `@` ref; no rich IDE context.
+
+Selected text rendering:
+
+- `selectedTextLineLimit` cycles `off`/`3`/`5`/`9` in `/ide`.
+- Over-budget excerpts render head/tail with `[... N lines ... ]` or
+  `[... omitted text ... ]` between.
+
+## UI and config
+
+Footer status key is `lovely-ide`.
+
+- Connected: shows `● IDE`, IDE name, PID, and current cursor/selection.
+- Disconnected with both auto flags off: `○ IDE disabled` muted.
+- Otherwise disconnected: `○ IDE disconnected` error.
+- Cursor/selection display is independent of Selection Context.
+
+`/ide` shows a custom selector:
+
+- Live Selection Context preview above options when Selection Context is enabled.
+- Current IDE selection when connected/non-empty; example selected-code preview otherwise.
+- Preview refreshes while open as native IDE selection events arrive.
+- Lists discovered IDE endpoints.
+- Config items:
+  - auto-connect on startup;
+  - auto-reconnect on loss;
+  - selection context;
+  - display context messages;
+  - debug raw IDE notifications;
+  - selection text line limit cycle.
+- Includes Disconnect action.
+- Arrow keys navigate; Space toggles/cycles config live; Enter accepts; Esc cancels.
+- Current connection is pre-selected.
+
+Debug notifications:
+
+- Optional display-only custom messages `lovely-ide.debugNotification`.
+- Show incoming IDE JSON-RPC notifications as syntax-highlighted pretty JSON.
+- Truncate at 4KB.
+- Stripped from model context.
+- Already-rendered text is cleared when toggle is turned off.
+
+## VS Code extension
+
+`ide-plugins/vscode` is an ESM VS Code subpackage.
+
+- Marketplace package name: `pi-lovely-ide`.
+- Extension ID: `xl0.pi-lovely-ide`.
+- VS Code engine: `^1.100.0`.
+- Command: `Pi: Mention Selection` (`pi-lovely-ide.mentionSelection`).
+- Default keybinding: `Alt+Shift+L` when editor text or notebook editor is focused.
+- Uses `ws`, Valibot, and shared protocol module.
+- `tsc --noEmit` type-checks.
+- `esbuild.mjs` bundles/minifies CommonJS output to `dist/extension.cjs`.
+- `.vscodeignore` excludes source/config/deps/lockfiles/maps for VSIX packaging.
+- Root `dev-install-vscode-plugin.sh [ide-cli]` installs deps, packages VSIX, and installs
+  through `code` by default or another CLI such as `cursor`.
+- Root `.vscode/launch.json` runs Extension Development Host from the subpackage;
+  `.vscode/tasks.json` compiles first.
+
+Activation/runtime:
+
+- Activates on `onStartupFinished`.
+- Creates VS Code log output channel `Pi Lovely IDE`.
+- Starts one localhost WebSocket server per extension host/window.
+- Generates random token.
+- Writes `~/.pi/ide/<port>.lock` with protocol/version/port/PID/workspaces/IDE/token.
+- Updates lockfile on workspace folder changes.
+- Removes own lockfile on deactivate.
+- Opportunistically deletes safe stale `pi-ide` locks with dead PID.
+- Validates `X-Pi-Ide-Authorization` before registering connection.
+- Accepts `hello`, stores connection metadata by socket, responds to `ping`, and waits for
+  future selection events instead of sending current selection on hello.
+
+Selection publishing:
+
+- Listens only to `onDidChangeTextEditorSelection`.
+- Active editor changes, visible-range changes, and notebook-editor selection events do not
+  publish ambient selections.
+- Publishes text selections and cursor positions to subscribed Pi connections regardless of
+  file workspace.
+- Dedupe is per socket using last selection keys.
+- VS Code half-open selections ending at column 0 map to previous line's last character for
+  protocol ranges; text excerpts exclude that trailing newline.
+- Small selected text sends full `head`.
+- Large selected text sends first/last 20 selected lines, each edge capped at 2048 chars.
+- Notebook cell text selections/cursors map to notebook file plus cell address plus
+  cell-relative range by matching against active notebook editor.
+
+Mention command:
+
+- Uses active text editor selection.
+- Notebook cell documents must resolve to active notebook editor cell; otherwise warns and
+  sends nothing.
+- If multiple subscribed Pi connections are available, uses QuickPick by session name/id/PID.
+- If one target exists, sends directly.
+
+Debug logs cover server/lockfile/connection state, listened VS Code text selection events,
+and outgoing protocol summaries without raw selected text.
+
+## Non-goals/current absences
+
+- No Pi tools.
+- No IDE tool calls.
+- No custom footer beyond status key.
+- No notebook execution protocol yet.
