@@ -34,6 +34,7 @@ const PACKAGE_VERSION = packageJson.version ?? "0.0.0"
 const IDE_LOCK_DIR = join(dirname(getAgentDir()), "ide")
 const STATUS_KEY = "lovely-ide"
 const DEBUG_NOTIFICATION_CUSTOM_TYPE = "lovely-ide.debugNotification"
+const SELECTION_PROMPT_GUIDELINE = "The <selection>/<cursor> blocks refer to the user's selection in the IDE. They may or may not be relevant to your task. Silently ignore them when unrelated."
 const RECONNECT_DELAY_MS = 1_000
 const DEBUG_NOTIFICATION_MAX_CHARS = 4_000
 
@@ -382,21 +383,22 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		return { action: "continue" }
 	})
 
-	pi.on("before_agent_start", () => {
+	pi.on("before_agent_start", event => {
 		const mentions = pendingPromptMentions
 		const snapshot = config.selectionContext ? (pendingSelection ?? null) : null
 		pendingPromptMentions = []
 		pendingSelection = undefined
+		const result: { message?: { customType: string; content: string; display: boolean; details: IdeContextDetails }; systemPrompt?: string } = {}
 		if (mentions.length || snapshot) {
-			return {
-				message: {
-					customType: IDE_CONTEXT_CUSTOM_TYPE,
-					content: "",
-					display: config.displaySelectionMessages,
-					details: { mentions, selection: snapshot }
-				}
+			result.message = {
+				customType: IDE_CONTEXT_CUSTOM_TYPE,
+				content: "",
+				display: config.displaySelectionMessages,
+				details: { mentions, selection: snapshot }
 			}
 		}
+		if (snapshot && mentions.length === 0) result.systemPrompt = `${event.systemPrompt}\n\n${SELECTION_PROMPT_GUIDELINE}`
+		if (result.message || result.systemPrompt !== undefined) return result
 	})
 
 	pi.on("context", event => {
