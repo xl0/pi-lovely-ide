@@ -3,7 +3,8 @@
 ## Decisions: Pi IDE Protocol v1
 
 - [x] Use pi-native JSON-RPC-lite over local WebSocket; drop MCP/SSE/Claude Code compatibility from implementation.
-- [x] Keep `CC_IDE_PROTOCOL.md` as historical Claude Code reference; `PI_IDE_PROTOCOL.md` is canonical.
+- [x] Keep `docs/CC_IDE_PROTOCOL.md` as historical Claude Code reference;
+      `docs/PI_IDE_PROTOCOL.md` is canonical.
 - [x] IDE discovery via `~/.pi/ide/<port>.lock`, JSON carries `protocol: "pi-ide"`, `version: 1`, `port`, `pid`, `workspaces`, `ide`, `token`.
 - [x] Token required; random per IDE server start; client sends `X-Pi-Ide-Authorization`.
 - [x] PID advisory. Clean stale lockfiles only for `protocol: "pi-ide"`, present dead PID, and known same OS/PID namespace. No port probing or TTL in v1.

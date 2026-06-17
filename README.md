@@ -41,8 +41,8 @@ Manual smoke test:
 
 ## Protocol docs
 
-- [`PI_IDE_PROTOCOL.md`](./PI_IDE_PROTOCOL.md) — Canonical pi-native protocol.
-- [`CC_IDE_PROTOCOL.md`](./CC_IDE_PROTOCOL.md) — Historical Claude Code IDE protocol reference only.
+- [`PI_IDE_PROTOCOL.md`](./docs/PI_IDE_PROTOCOL.md) — Canonical pi-native protocol.
+- [`CC_IDE_PROTOCOL.md`](./docs/CC_IDE_PROTOCOL.md) — Historical Claude Code IDE protocol reference only.
 
 ## Local development
 

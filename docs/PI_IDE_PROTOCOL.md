@@ -356,4 +356,4 @@ Response:
 
 ## Compatibility notes
 
-`CC_IDE_PROTOCOL.md` documents the old Claude Code-compatible MCP discovery/messages as historical reference. Native Pi IDE Protocol v1 is the lockfile + JSON-RPC-lite WebSocket contract above.
+[`CC_IDE_PROTOCOL.md`](./CC_IDE_PROTOCOL.md) documents the old Claude Code-compatible MCP discovery/messages as historical reference. Native Pi IDE Protocol v1 is the lockfile + JSON-RPC-lite WebSocket contract above.

@@ -8,8 +8,8 @@
   - Pi extension in `extensions/lovely-ide/`.
   - Shared protocol module in `packages/protocol/src/`.
 - Repo also includes separately distributed VS Code extension in `ide-plugins/vscode/`.
-- Canonical protocol doc: `PI_IDE_PROTOCOL.md`.
-- `CC_IDE_PROTOCOL.md` is historical Claude Code reference only.
+- Canonical protocol doc: `docs/PI_IDE_PROTOCOL.md`.
+- `docs/CC_IDE_PROTOCOL.md` is historical Claude Code reference only.
 - Root TS config is strict, including `exactOptionalPropertyTypes`.
 - Root scripts type-check/check both Pi package and VS Code subpackage.
 - Runtime validation uses Valibot in shared protocol and extension-local state.
