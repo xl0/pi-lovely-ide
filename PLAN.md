@@ -12,6 +12,7 @@
 - [x] Client sends `hello` with `version`, `client { name, version, pid, mode }`, `session { id, name? }`, `connection { id, subscriptions }`, and `workspace`.
 - [x] Static connection subscriptions; v1 events are `selection` and `mention`; unknown subscriptions/events ignored.
 - [x] IDE groups multiple connections by `session.id`; routes events by `connection.subscriptions`.
+- [x] Pi notifies IDE of post-hello session-name changes via `session_info_changed`; IDE target pickers use latest name.
 - [x] Events use one JSON-RPC notification method `event` plus `params.type`.
 - [x] Wire ranges are zero-based inclusive display/reference ranges; editor APIs with half-open ranges adapt before sending, including omitting VS Code's trailing full-line-selection newline from text excerpts.
 - [x] `selection` and `mention` share `file + spans`. Empty `spans` with a file means whole file; otherwise each span may be whole notebook cell or optional cell-relative/file range.
@@ -24,7 +25,7 @@
 - [x] Protocol code lives in shared package/module, intended for Pi extension, VS Code plugin, and future notebook package.
 - [x] One WebSocket server per VS Code extension host/window; lockfile lists current workspace folders and updates on workspace changes.
 - [x] Lockfile name is `<port>.lock`.
-- [x] `Pi: Mention Selection` command sends current selection/cell spans and has default `Alt+Shift+L` keybinding. If multiple eligible Pi targets, use QuickPick by session name/id/pid; if one, send directly.
+- [x] `Pi: Mention Selection` command sends current selection/cell spans and has default `Alt+Shift+L` keybinding. If multiple eligible Pi targets, use QuickPick by latest session name/id/pid; if one, send directly.
 - [x] Store Pi connection metadata from `hello`; broadcast changed non-empty `selection` to subscribed conns; send `mention` to chosen subscribed conn.
 
 ## Follow-ups deferred
@@ -64,7 +65,7 @@ Question tree:
   - [x] Update lockfile on workspace folder changes; remove own lockfile on deactivate.
   - [x] Opportunistically remove safe stale `pi-ide` lockfiles before writing.
   - [x] Validate WS auth header before registering connection.
-  - [x] Implement `hello`, store connection metadata, group by session, support `ping`.
+  - [x] Implement `hello`, store connection metadata, update session names, group by session, support `ping`.
   - [x] Add VS Code `Pi Lovely IDE` log output channel for server/lockfile/connection state plus all listened VS Code events and outgoing protocol summaries at debug without raw selected text.
   - [x] Observe text selection events and publish selected ranges/cursor positions to subscribed conns regardless of file workspace; send full small span text or first/last line excerpts for large spans.
   - [x] Support notebook spans: notebook cell text selections as `cell + range`; ambient notebook cell-selection events are ignored.
@@ -72,6 +73,7 @@ Question tree:
 - [x] Update Pi extension to native Pi IDE Protocol.
   - [x] Discover `~/.pi/ide/*.lock`; remove Claude Code discovery/MCP initialize path.
   - [x] Send `hello` with Pi session id/name, mode, PID, connection id, subscriptions `selection`/`mention`.
+  - [x] Send `session_info_changed` when Pi reports session display-name changes.
   - [x] Parse `event` notifications with `spans`; adapt current single-selection snapshot/at-mention behavior to first ranged span.
   - [x] Keep `/ide` toggles/status/reconnect/debug notifications; add optional visible selection-context messages for manual inspection.
 - [ ] Verify.

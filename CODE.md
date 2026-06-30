@@ -13,6 +13,8 @@
 - Root TS config is strict, including `exactOptionalPropertyTypes`.
 - Root scripts type-check/check both Pi package and VS Code subpackage.
 - Runtime validation uses Valibot in shared protocol and extension-local state.
+- Pi peer/dev dependency is `@earendil-works/pi-coding-agent` `^0.80.2` for
+  typed `session_info_changed` support.
 
 ## Shared protocol module
 
@@ -23,7 +25,7 @@
   - `PI_IDE_PROTOCOL_VERSION = 1`.
   - `PI_IDE_AUTH_HEADER = "X-Pi-Ide-Authorization"`.
 - Wire methods/events:
-  - Methods: `hello`, `event`, `ping`.
+  - Methods: `hello`, `event`, `ping`, `session_info_changed`.
   - Events: `selection`, `mention`.
 - Schemas/types cover:
   - JSON-RPC-ish envelopes.
@@ -78,6 +80,8 @@ Connection behavior:
 - Connect timeout is 3s.
 - Hello includes protocol version, client name/version/PID/mode, Pi session id/name,
   random connection id, subscriptions `selection`/`mention`, and workspace.
+- Pi sends `session_info_changed` notifications after `hello` when Pi's session name
+  changes; IDEs update the stored name for that connection.
 - Hello result is validated.
 - IDE-initiated JSON-RPC requests, including `ping`, get `{}` result.
 - Incoming `event` notifications are parsed via shared protocol helpers.
@@ -218,7 +222,8 @@ Mention command:
 - Uses active text editor selection.
 - Notebook cell documents must resolve to active notebook editor cell; otherwise warns and
   sends nothing.
-- If multiple subscribed Pi connections are available, uses QuickPick by session name/id/PID.
+- If multiple subscribed Pi connections are available, uses QuickPick by latest session
+  name/id/PID.
 - If one target exists, sends directly.
 
 Debug logs cover server/lockfile/connection state, listened VS Code text selection events,
