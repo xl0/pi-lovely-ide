@@ -137,6 +137,26 @@ The IDE may reject incompatible `version` values or workspaces with JSON-RPC err
 
 Event routing is based on `connection.subscriptions`. If several matching Pi sessions/connections subscribe to `mention`, the IDE should ask which target receives the explicit mention.
 
+## Session info changes
+
+After `hello`, Pi may notify the IDE when the current session display name changes:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "session_info_changed",
+  "params": {
+    "name": "Refactor auth"
+  }
+}
+```
+
+Fields:
+
+- `name?: string` — latest human session label. Missing or empty means no label.
+
+The notification updates the `session.name` supplied in `hello` for the same WebSocket connection. IDEs should use the latest name in target pickers for explicit mentions.
+
 ## Events
 
 IDE sends editor-originated events as JSON-RPC notifications. Shape sketch only; concrete events below include required `file` and `spans` fields.

@@ -29,7 +29,7 @@ Historical documentation of Claude Code-compatible MCP lockfiles/messages kept f
 _Avoid_: native protocol, active adapter
 
 **Pi Instance**:
-One Pi process/session in a workspace, identified to the IDE by process PID plus session id/name from Pi's session manager. A Pi Instance may have multiple IDE connections.
+One Pi process/session in a workspace, identified to the IDE by process PID plus session id/name from Pi's session manager. The name may change after connection setup. A Pi Instance may have multiple IDE connections.
 _Avoid_: workspace, IDE server
 
 **IDE Connection Subscription**:

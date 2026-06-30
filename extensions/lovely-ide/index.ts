@@ -34,7 +34,8 @@ const PACKAGE_VERSION = packageJson.version ?? "0.0.0"
 const IDE_LOCK_DIR = join(dirname(getAgentDir()), "ide")
 const STATUS_KEY = "lovely-ide"
 const DEBUG_NOTIFICATION_CUSTOM_TYPE = "lovely-ide.debugNotification"
-const SELECTION_PROMPT_GUIDELINE = "The <selection>/<cursor> blocks refer to the user's selection in the IDE. They may or may not be relevant to your task. Silently ignore them when unrelated."
+const SELECTION_PROMPT_GUIDELINE =
+	"The <selection>/<cursor> blocks refer to the user's selection in the IDE. They may or may not be relevant to your task. Silently ignore them when unrelated."
 const RECONNECT_DELAY_MS = 1_000
 const DEBUG_NOTIFICATION_MAX_CHARS = 4_000
 
@@ -388,7 +389,10 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		const snapshot = config.selectionContext ? (pendingSelection ?? null) : null
 		pendingPromptMentions = []
 		pendingSelection = undefined
-		const result: { message?: { customType: string; content: string; display: boolean; details: IdeContextDetails }; systemPrompt?: string } = {}
+		const result: {
+			message?: { customType: string; content: string; display: boolean; details: IdeContextDetails }
+			systemPrompt?: string
+		} = {}
 		if (mentions.length || snapshot) {
 			result.message = {
 				customType: IDE_CONTEXT_CUSTOM_TYPE,
@@ -418,6 +422,10 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		await config.load()
 		updateStatus()
 		if (config.autoConnectOnStartup) await connectOnStartup(ctx)
+	})
+
+	pi.on("session_info_changed", event => {
+		connection?.send({ jsonrpc: "2.0", method: "session_info_changed", params: event.name ? { name: event.name } : {} })
 	})
 
 	pi.on("session_shutdown", () => {

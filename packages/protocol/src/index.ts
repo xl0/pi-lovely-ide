@@ -4,7 +4,7 @@ export const PI_IDE_PROTOCOL = "pi-ide"
 export const PI_IDE_PROTOCOL_VERSION = 1
 export const PI_IDE_AUTH_HEADER = "X-Pi-Ide-Authorization"
 
-export type IdeMethod = "hello" | "event" | "ping"
+export type IdeMethod = "hello" | "event" | "ping" | "session_info_changed"
 export type IdeEventType = "selection" | "mention"
 
 export const JsonRpcIdSchema = v.union([v.string(), v.number()])
@@ -104,6 +104,11 @@ export const HelloResultSchema = v.looseObject({
 })
 export type HelloResult = v.InferOutput<typeof HelloResultSchema>
 
+export const SessionInfoChangedParamsSchema = v.looseObject({
+	name: v.optional(v.string())
+})
+export type SessionInfoChangedParams = v.InferOutput<typeof SessionInfoChangedParamsSchema>
+
 export interface ParsedIdeEventMessage {
 	kind: "event"
 	type: IdeEventType
@@ -124,12 +129,23 @@ export interface ParsedIdePingMessage {
 	message: JsonRpcMessage
 }
 
+export interface ParsedIdeSessionInfoChangedMessage {
+	kind: "session_info_changed"
+	params: SessionInfoChangedParams
+	message: JsonRpcMessage
+}
+
 export interface ParsedIdeJsonRpcMessage {
 	kind: "jsonrpc"
 	message: JsonRpcMessage
 }
 
-export type ParsedIdeMessage = ParsedIdeEventMessage | ParsedIdeHelloMessage | ParsedIdePingMessage | ParsedIdeJsonRpcMessage
+export type ParsedIdeMessage =
+	| ParsedIdeEventMessage
+	| ParsedIdeHelloMessage
+	| ParsedIdePingMessage
+	| ParsedIdeSessionInfoChangedMessage
+	| ParsedIdeJsonRpcMessage
 
 export function parseJsonRpcMessage(raw: string): JsonRpcMessage | undefined {
 	try {
@@ -151,6 +167,11 @@ export function parseIdeJsonRpcMessage(message: JsonRpcMessage): ParsedIdeMessag
 
 	if (message.method === "ping" && message.id != null) {
 		return { kind: "ping", id: message.id, message }
+	}
+
+	if (message.method === "session_info_changed" && message.id == null) {
+		const params = parseSessionInfoChangedParams(message.params ?? {})
+		if (params) return { kind: "session_info_changed", params, message }
 	}
 
 	return { kind: "jsonrpc", message }
@@ -181,4 +202,12 @@ export function parseIdeEventParams(value: unknown): IdeEventParams | undefined 
 		if (!span.range && !span.cell) return undefined
 	}
 	return params
+}
+
+export function parseSessionInfoChangedParams(value: unknown): SessionInfoChangedParams | undefined {
+	try {
+		return v.parse(SessionInfoChangedParamsSchema, value)
+	} catch {
+		return undefined
+	}
 }

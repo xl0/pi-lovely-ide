@@ -294,6 +294,16 @@ function handleMessage(socket: WebSocket, raw: string): void {
 	}
 
 	if (parsed.kind === "ping") send(socket, { jsonrpc: "2.0", id: parsed.id, result: {} })
+
+	if (parsed.kind === "session_info_changed") {
+		const conn = connections.get(socket)
+		if (!conn) return
+		conn.hello = {
+			...conn.hello,
+			session: parsed.params.name ? { ...conn.hello.session, name: parsed.params.name } : { id: conn.hello.session.id }
+		}
+		logChannel?.info(`Updated session info for ${label(conn)}`)
+	}
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
