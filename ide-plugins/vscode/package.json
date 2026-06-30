@@ -2,7 +2,7 @@
 	"name": "pi-lovely-ide",
 	"displayName": "Pi Lovely IDE",
 	"description": "Pi IDE Protocol bridge for VS Code",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"publisher": "xl0",
 	"license": "MIT",
 	"repository": {
