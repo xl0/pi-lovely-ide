@@ -270,39 +270,42 @@ function handleMessage(socket: WebSocket, raw: string): void {
 	}
 	const msg = parsed.message
 
-	if (parsed.kind === "hello") {
-		if (parsed.params.version !== PI_IDE_PROTOCOL_VERSION) {
-			logChannel?.warn(`Rejected hello with unsupported protocol version ${parsed.params.version}`)
-			send(socket, { jsonrpc: "2.0", id: parsed.id, error: { code: -32000, message: "unsupported protocol version" } })
+	switch (parsed.kind) {
+		case "hello": {
+			if (parsed.params.version !== PI_IDE_PROTOCOL_VERSION) {
+				logChannel?.warn(`Rejected hello with unsupported protocol version ${parsed.params.version}`)
+				send(socket, { jsonrpc: "2.0", id: parsed.id, error: { code: -32000, message: "unsupported protocol version" } })
+				return
+			}
+			const conn: PiConnection = { socket, hello: parsed.params }
+			connections.set(socket, conn)
+			logChannel?.info(`Accepted hello from ${label(conn)} workspace=${parsed.params.workspace}`)
+			send(socket, {
+				jsonrpc: "2.0",
+				id: parsed.id,
+				result: { version: PI_IDE_PROTOCOL_VERSION, ide: { name: vscode.env.appName, version: vscode.version } }
+			})
 			return
 		}
-		const conn: PiConnection = { socket, hello: parsed.params }
-		connections.set(socket, conn)
-		logChannel?.info(`Accepted hello from ${label(conn)} workspace=${parsed.params.workspace}`)
-		send(socket, {
-			jsonrpc: "2.0",
-			id: parsed.id,
-			result: { version: PI_IDE_PROTOCOL_VERSION, ide: { name: vscode.env.appName, version: vscode.version } }
-		})
-		return
-	}
-
-	if (msg.method === "hello" && msg.id != null) {
-		logChannel?.warn("Rejected invalid hello")
-		send(socket, { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "invalid hello" } })
-		return
-	}
-
-	if (parsed.kind === "ping") send(socket, { jsonrpc: "2.0", id: parsed.id, result: {} })
-
-	if (parsed.kind === "session_info_changed") {
-		const conn = connections.get(socket)
-		if (!conn) return
-		conn.hello = {
-			...conn.hello,
-			session: parsed.params.name ? { ...conn.hello.session, name: parsed.params.name } : { id: conn.hello.session.id }
+		case "ping":
+			send(socket, { jsonrpc: "2.0", id: parsed.id, result: {} })
+			return
+		case "session_info_changed": {
+			const conn = connections.get(socket)
+			if (!conn) return
+			if (parsed.params.name) conn.hello.session.name = parsed.params.name
+			else delete conn.hello.session.name
+			logChannel?.info(`Updated session info for ${label(conn)}`)
+			return
 		}
-		logChannel?.info(`Updated session info for ${label(conn)}`)
+		case "jsonrpc":
+			if (msg.method === "hello" && msg.id != null) {
+				logChannel?.warn("Rejected invalid hello")
+				send(socket, { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "invalid hello" } })
+			}
+			return
+		case "event":
+			return
 	}
 }
 
