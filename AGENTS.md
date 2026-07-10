@@ -34,7 +34,7 @@ Don't put too much on one line, keep things readeable.
 - The best changes are often the smallest correct changes.
 - When you are weighing two correct approaches, prefer the more minimal one (less new names, helpers, tests, etc).
 - Keep things in one function unless composable or reusable.
-- NO shallow abstractions. Avoid single-use abstractions. Strive to design deep abstractions with small interfaces.
+- Avoid shallow abstractions. Avoid single-use abstractions. Deep abstractions with small interface preferred.
 
 - No speculative try/catch with fall-backs. Only handle real errors, and default to a clear explicit fail, don't implement fallbacks unless asked.
 - Never create legacy compatibility layers, unless asked specifically.
@@ -91,3 +91,9 @@ Pattern: `[thing] [action] [reason]. [next step].`
 
 Not: "Sure! I'd be happy to help you with that. The issue you're experiencing is likely caused by..."
 Yes: "Bug in auth middleware. Token expiry check use `<` not `<=`. Fix:"
+
+## TypeScript / Node / Svelte
+
+- Always use bun/bunx, not npm
+- You may install packages, double-check with the user if in doubt.
+- If project is using shadcn, prefer installing shadcn components over hand-rolled replacements.
