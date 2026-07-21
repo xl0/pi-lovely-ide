@@ -22,6 +22,7 @@ fi
 
 cd "$PLUGIN_DIR"
 bun install
+rm -f -- "$PLUGIN_DIR"/*.vsix
 bun run package
 
 shopt -s nullglob

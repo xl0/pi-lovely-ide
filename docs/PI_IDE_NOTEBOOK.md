@@ -86,14 +86,7 @@ Need split 2 concerns:
 
  - new request kind from Pi to IDE: toolCall
  - new response schema/result union
- - maybe optional capabilities in hello response:
-     - tools?: ["notebook_execute_cell"]
-
- Why capabilities:
- - Pi ext can discover whether connected IDE supports exec
- - future-proof for more IDE tools
-
- I’d add capabilities now. Cheap.
+ - unavailable request methods return JSON-RPC `-32601` immediately
 
  VS Code extension plan
 
@@ -220,7 +213,7 @@ Need split 2 concerns:
 
  Even though you asked VS Code side, Pi side needs thin glue:
 
- - if IDE hello says tool capability present, register local tool facade:
+ - register local tool facade:
      - ide_notebook_execute_cell or plain notebook_execute_cell
  - facade sends protocol toolCall to current IDE conn
  - returns IDE result
@@ -237,7 +230,7 @@ Need split 2 concerns:
 
  ### Phase 1 — protocol
 
- - add capabilities to hello result
+ - define immediate JSON-RPC `-32601` failure for unavailable methods
  - add Pi->IDE toolCall request + typed result
  - add parser/schema support
 
@@ -253,7 +246,7 @@ Need split 2 concerns:
 
  ### Phase 3 — Pi facade
 
- - register exec tool only when connected IDE advertises capability
+ - register exec tool
  - route request to active IDE conn
  - expose terse result
 
