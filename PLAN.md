@@ -1,100 +1,36 @@
 # Plan
 
-## Decisions: Pi IDE Protocol v1
+Bridge Pi with IDEs over the pi-native Pi IDE Protocol: ambient selection context,
+explicit mentions, and explicit Problems attachments, with a VS Code plugin as the
+first IDE implementation. Canonical protocol spec is `docs/PI_IDE_PROTOCOL.md`;
+current behavior is recorded in `CODE.md`.
 
-- [x] Use pi-native JSON-RPC-lite over local WebSocket; drop MCP/SSE/Claude Code compatibility from implementation.
-- [x] Keep `docs/CC_IDE_PROTOCOL.md` as historical Claude Code reference;
-      `docs/PI_IDE_PROTOCOL.md` is canonical.
-- [x] IDE discovery via `~/.pi/ide/<port>.lock`, JSON carries `protocol: "pi-ide"`, `version: 1`, `port`, `pid`, `workspaces`, `ide`, `token`.
-- [x] Token required; random per IDE server start; client sends `X-Pi-Ide-Authorization`.
-- [x] PID advisory. Clean stale lockfiles only for `protocol: "pi-ide"`, present dead PID, and known same OS/PID namespace. No port probing or TTL in v1.
-- [x] Multi-root workspaces supported; agent cwd matches equal/descendant of any root.
-- [x] Client sends `hello` with `version`, `client { name, version, pid, mode }`, `session { id, name? }`, `connection { id, subscriptions }`, and `workspace`.
-- [x] Static connection subscriptions; v1 events are `selection`, `mention`, and `diagnostics`; unknown subscriptions/events ignored.
-- [x] Unknown requests fail immediately with JSON-RPC `-32601`; unknown notifications are ignored.
-- [x] IDE groups multiple connections by `session.id`; routes events by `connection.subscriptions`.
-- [x] Pi notifies IDE of post-hello session-name changes via `session_info_changed`; IDE target pickers use latest name.
-- [x] Events use one JSON-RPC notification method `event` plus `params.type`.
-- [x] Wire ranges are zero-based inclusive display/reference ranges; editor APIs with half-open ranges adapt before sending, including omitting VS Code's trailing full-line-selection newline from text excerpts.
-- [x] `selection` and `mention` share `file + spans`. Empty `spans` with a file means whole file; otherwise each span may be whole notebook cell or optional cell-relative/file range.
-- [x] Span text uses `TextExcerpt`: small selections send full `head`; large selections send first/last lines (`head`/`tail`) with per-edge character caps.
+## [x] Done (compacted)
 
-## Decisions: VS Code IDE plugin
+- [x] Pi IDE Protocol v1: JSON-RPC-lite over local WebSocket; lockfile discovery with
+      token auth and advisory PID cleanup; `hello` with session/connection/subscriptions;
+      one `event` method carrying `selection`/`mention`/`diagnostics`; unknown requests
+      fail with `-32601`; zero-based inclusive spans with `TextExcerpt` head/tail excerpts.
+- [x] VS Code plugin (`ide-plugins/vscode`): WS server + lockfile per window, selection
+      publishing from text-editor selection events only, `Pi: Mention Selection`,
+      notebook cell-relative spans, QuickPick targeting, debug log channel.
+- [x] Pi extension on native protocol: discovery/reconnect, footer status, `/ide` UI,
+      ambient selection context, mention context, `session_info_changed`.
+- [x] IDE Problems: explicit attach commands (selection/file/workspace) with markers,
+      LSP half-open ranges preserved, notebook cell id/index, bounded selected-code
+      excerpts, empty-attachment notifications, one global model-context cap across
+      history with full output saved to a temp file on truncation.
+- [x] Automated verification: root/VS Code typechecks, Biome, bundle compile, context smoke test.
 
-- [x] Plugin lives in this repo under `ide-plugins/vscode`; Marketplace extension ID intended as `xl0.pi-lovely-ide`.
-- [x] Plugin has its own VS Code subpackage: `package.json`, `tsconfig.json`, `src/extension.ts`, esbuild-bundled VSIX packaging scripts, and root `dev-install-vscode-plugin.sh [ide-cli]` helper.
-- [x] Protocol code lives in shared package/module, intended for Pi extension, VS Code plugin, and future notebook package.
-- [x] One WebSocket server per VS Code extension host/window; lockfile lists current workspace folders and updates on workspace changes.
-- [x] Lockfile name is `<port>.lock`.
-- [x] `Pi: Mention Selection` command sends current selection/cell spans and has default `Alt+Shift+L` keybinding. If multiple eligible Pi targets, use QuickPick by latest session name/id/pid; if one, send directly.
-- [x] Store Pi connection metadata from `hello`; broadcast changed non-empty `selection` to subscribed conns; send `mention` to chosen subscribed conn.
+## Manual verification
 
-## Follow-ups deferred
+- [ ] Extension Development Host test against live language-server diagnostics.
+- [ ] Both Problems attachment commands and resulting model context after extension reload.
+- [ ] Connect, footer status, ambient selection context, mention command, multi-selection,
+      multiple Pi sessions target picker, stale lock cleanup.
 
-- [x] Notebook selection/mention UX: VS Code sends cell-relative text ranges and Pi renders/pastes notebook cell addresses in mentions, status, and context tags.
-
-## IDE Problems
-
-- [x] Preserve LSP half-open diagnostic ranges and document difference from inclusive selection ranges.
-- [x] Add VS Code commands for active-document/selection and workspace Problems attachments.
-- [x] Bind `Alt+Shift+D` to active-document/selection Problems attachment.
-- [x] Paste Problems markers with selection line ranges when applicable and inject bounded
-      snapshot output only when referenced by the submitted prompt.
-- [x] Preserve notebook cell id/index and cell-relative lines in Problems markers and context.
-- [x] Include bounded selected-code excerpts in selection-scoped Problems attachments.
-- [x] Notify and send nothing for empty selection/workspace Problems attachments.
-- [x] Bound all model-visible Problems context across message history to one Pi-standard limit;
-      save full context to a temp file and include its path when truncated.
-- [x] Verify root/VS Code typechecks, Biome checks, bundle compile, and attachment context smoke test.
-- [ ] Manual Extension Development Host test against live language-server diagnostics.
-- [ ] Manual test both Problems attachment commands and resulting model context after extension reload.
-
-## Notebook follow-up decisions still open
+## Notebook follow-ups still open
 
 - [ ] Notebook execution protocol namespace (`notebook/*`) and whether it belongs in v2 or separate doc.
 - [ ] Notebook execution address model beyond selection/mention spans: path + stable cell id + index fallback is likely.
 - [ ] Notebook execution result model: return final cell outputs/status first; streaming optional later.
-
-## Design grill: VS Code selection event simplification
-
-Question tree:
-
-- [x] Semantics: IDE Selection is driven by explicit VS Code selection events, not active editor state. Active editor/tab/visible-range changes do nothing.
-- [x] Empty/cursor selections: publish same-position range spans; active editor changes alone do nothing.
-- [x] Event sources: keep only text-editor selection listener for ambient selection; notebook-editor selection events are ignored.
-- [x] Event payload source: build payload directly from selection event object, not ambient active editor state.
-- [x] Notebook behavior: do not use notebook cell-selection events for ambient selection for now. React only to `onDidChangeTextEditorSelection`; for notebook-cell text docs, find owning notebook cell by document/URI.
-- [x] Active filtering: do not filter; publish selection events from the VS Code event object regardless of active editor for now.
-- [x] Connection hello: do not send current/cached selection; wait for next selection event.
-- [x] Dedupe/cache: keep only per-socket `lastSelectionKeys`; remove retained/cached last selection event.
-- [x] Clear affordance: no explicit command/protocol affordance for now; cursor movement updates IDE Selection instead of clearing.
-- [x] Verification: VS Code plugin typecheck passes.
-
-## Implementation plan
-
-- [x] Create shared protocol package/module.
-  - [x] `packages/protocol` or repo-local equivalent named for eventual `@xl0/pi-ide-protocol`.
-  - [x] Export wire constants: protocol name/version and auth header.
-  - [x] Export protocol schemas + inferred TS types for lockfile, JSON-RPC envelope, `hello`, `event`, spans, and parsed IDE messages.
-- [x] Add VS Code plugin under `ide-plugins/vscode`.
-  - [x] Subpackage setup with VS Code engine, ESM TypeScript compile, activation events, command contribution.
-  - [x] Start local WS server on activation, choose free port, generate token, write `~/.pi/ide/<port>.lock`.
-  - [x] Update lockfile on workspace folder changes; remove own lockfile on deactivate.
-  - [x] Opportunistically remove safe stale `pi-ide` lockfiles before writing.
-  - [x] Validate WS auth header before registering connection.
-  - [x] Implement `hello`, store connection metadata, update session names, group by session, support `ping`.
-  - [x] Add VS Code `Pi Lovely IDE` log output channel for server/lockfile/connection state plus all listened VS Code events and outgoing protocol summaries at debug without raw selected text.
-  - [x] Observe text selection events and publish selected ranges/cursor positions to subscribed conns regardless of file workspace; send full small span text or first/last line excerpts for large spans.
-  - [x] Support notebook spans: notebook cell text selections as `cell + range`; ambient notebook cell-selection events are ignored.
-  - [x] Implement `Pi: Mention Selection` command and target QuickPick.
-- [x] Update Pi extension to native Pi IDE Protocol.
-  - [x] Discover `~/.pi/ide/*.lock`; remove Claude Code discovery/MCP initialize path.
-  - [x] Send `hello` with Pi session id/name, mode, PID, connection id, subscriptions `selection`/`mention`/`diagnostics`.
-  - [x] Send `session_info_changed` when Pi reports session display-name changes.
-  - [x] Parse `event` notifications with `spans`; adapt current single-selection snapshot/at-mention behavior to first ranged span.
-  - [x] Keep `/ide` toggles/status/reconnect/debug notifications; add optional visible selection-context messages for manual inspection.
-- [ ] Verify.
-  - [x] `bun run typecheck` / `bun run check` for root.
-  - [x] VS Code plugin compile.
-  - [x] VS Code plugin package.
-  - [ ] Manual: connect, footer status, ambient selection context, mention command, multi-selection, multiple Pi sessions target picker, stale lock cleanup.
