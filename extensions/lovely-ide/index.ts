@@ -15,7 +15,7 @@ import {
 	parseIdeLockFile
 } from "../../packages/protocol/src/index.js"
 import { registerIdeCommand } from "./command.js"
-import { ConfigState } from "./config.js"
+import { createConfigState } from "./config.js"
 import { IdeConnection } from "./connection.js"
 import {
 	formatIdeContextDetails,
@@ -69,7 +69,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let selectionPreviewRefresh: (() => void) | null = null
 	const debugNotificationViews = new Set<Text>()
 
-	const config = new ConfigState()
+	const config = createConfigState()
 	const selection = new SelectionState(displayPath)
 
 	function isPidAlive(pid: number | undefined): boolean {
@@ -178,7 +178,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	pi.registerMessageRenderer<DebugNotificationDetails>(DEBUG_NOTIFICATION_CUSTOM_TYPE, message => {
 		const details = validateDebugNotificationDetails(message.details)
-		if (!details || !config.debugNotifications) return new Text("", 0, 0)
+		if (!details || !config.value.debugNotifications) return new Text("", 0, 0)
 		const suffix = details.truncated ? `\n… (${details.originalLength} chars)` : ""
 		const view = new Text(`IDE raw ${details.method}:\n${highlightCode(details.pretty, "json").join("\n")}${suffix}`, 1, 0)
 		debugNotificationViews.add(view)
@@ -188,7 +188,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	pi.registerMessageRenderer<IdeContextDetails>(IDE_CONTEXT_CUSTOM_TYPE, message => {
 		const details = validateIdeContextDetails(message.details)
 		if (!details) return undefined
-		const text = formatIdeContextDetails(details, displayPath, config.selectedTextLineLimit)
+		const text = formatIdeContextDetails(details, displayPath, config.value.selectedTextLineLimit)
 		return text ? new Text(text, 1, 0) : undefined
 	})
 
@@ -196,7 +196,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		if (!currentCtx) return
 		const th = currentCtx.ui.theme
 		if (!connected) {
-			if (config.disabled) {
+			if (!config.value.autoConnectOnStartup && !config.value.autoReconnect) {
 				currentCtx.ui.setStatus(STATUS_KEY, th.fg("muted", "○ IDE disabled"))
 			} else {
 				currentCtx.ui.setStatus(STATUS_KEY, th.fg("error", "○ IDE disconnected"))
@@ -211,7 +211,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	}
 
 	function debugNotifyRawIdeNotification(message: JsonRpcMessage): void {
-		if (!config.debugNotifications) return
+		if (!config.value.debugNotifications) return
 		if (message.id != null || message.method == null) return
 		const pretty = JSON.stringify(message, null, 2)
 		pi.sendMessage<DebugNotificationDetails>(
@@ -278,10 +278,10 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	}
 
 	function scheduleReconnect(): void {
-		if (!config.autoReconnect || reconnectTimer || !currentCtx) return
+		if (!config.value.autoReconnect || reconnectTimer || !currentCtx) return
 		reconnectTimer = setTimeout(() => {
 			reconnectTimer = undefined
-			if (!config.autoReconnect || !currentCtx || connection || connecting) return
+			if (!config.value.autoReconnect || !currentCtx || connection || connecting) return
 			void reconnectMatching(currentCtx)
 		}, RECONNECT_DELAY_MS)
 	}
@@ -393,7 +393,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 			pendingMentions = []
 			pendingDiagnostics = []
 		}
-		if (config.selectionContext && capturePromptContext) {
+		if (config.value.selectionContext && capturePromptContext) {
 			pendingSelection = selection.snapshotCurrent()
 		} else {
 			pendingSelection = undefined
@@ -404,7 +404,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	pi.on("before_agent_start", event => {
 		const mentions = pendingPromptMentions
 		const diagnostics = pendingPromptDiagnostics
-		const snapshot = config.selectionContext ? (pendingSelection ?? null) : null
+		const snapshot = config.value.selectionContext ? (pendingSelection ?? null) : null
 		pendingPromptMentions = []
 		pendingPromptDiagnostics = []
 		pendingSelection = undefined
@@ -416,7 +416,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 			result.message = {
 				customType: IDE_CONTEXT_CUSTOM_TYPE,
 				content: "",
-				display: config.displaySelectionMessages,
+				display: config.value.displaySelectionMessages,
 				details: { mentions, diagnostics, selection: snapshot }
 			}
 		}
@@ -429,7 +429,12 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	pi.on("context", event => {
 		const displayMessages = stripDebugNotificationMessages(event.messages)
-		const contextMessages = injectIdeContexts(displayMessages, config.selectionContext, displayPath, config.selectedTextLineLimit)
+		const contextMessages = injectIdeContexts(
+			displayMessages,
+			config.value.selectionContext,
+			displayPath,
+			config.value.selectedTextLineLimit
+		)
 		if (contextMessages) return { messages: contextMessages }
 		if (displayMessages !== event.messages) return { messages: displayMessages }
 	})
@@ -440,10 +445,12 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		currentCtx = ctx
-		config.setProjectDir(ctx.cwd)
-		await config.load()
+		config.load(ctx.cwd)
+		if (config.warnings.length > 0) {
+			ctx.ui.notify(config.warnings.map(warning => `${warning.path}: ${warning.message}`).join("\n"), "warning")
+		}
 		updateStatus()
-		if (config.autoConnectOnStartup) await connectOnStartup(ctx)
+		if (config.value.autoConnectOnStartup) await connectOnStartup(ctx)
 	})
 
 	pi.on("session_info_changed", event => {

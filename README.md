@@ -25,9 +25,9 @@ The integration has two halves:
   workspace Problems). The model sees the diagnostics and the selected code they belong to.
 - **Notebook support** — selections, mentions, and Problems in notebook cells carry the cell
   id/index and cell-relative line numbers.
-- **`/ide`** — selector and live preview: pick an IDE endpoint, toggle auto-connect,
-  auto-reconnect, selection context, context-message display, debug logging of raw IDE
-  events, and the selected-text line budget.
+- **`/ide`** — selector and live preview: pick an IDE endpoint or open scoped settings for
+  auto-connect, auto-reconnect, selection context, context-message display, debug logging
+  of raw IDE events, and the selected-text line budget.
 
 ## Setup
 
@@ -52,6 +52,9 @@ The integration has two halves:
 3. Start Pi in a folder that is (or is inside) a workspace folder open in VS Code.
    Pi auto-connects on startup; if it doesn't, run `/ide` and pick the endpoint.
    The footer shows `● IDE` with the IDE name once connected.
+
+Settings support User (`~/.pi/agent/xl0-lovely-ide.json`) and Workspace
+(`<workspace>/.pi/xl0-lovely-ide.json`) scopes. Workspace values override User values.
 
 ## How it works
 

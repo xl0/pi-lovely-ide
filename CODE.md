@@ -14,8 +14,9 @@
 - Root TS config is strict, including `exactOptionalPropertyTypes`.
 - Root scripts type-check/check both Pi package and VS Code subpackage.
 - Runtime validation uses Valibot in shared protocol and extension-local state.
-- Pi peer/dev dependency is `@earendil-works/pi-coding-agent` `^0.80.2` for
+- Pi peer/dev dependency is `@earendil-works/pi-coding-agent` `^0.80.10` for
   typed `session_info_changed` support.
+- Scoped settings use `@xl0/pi-lovely-config`.
 
 ## Shared protocol module
 
@@ -51,7 +52,7 @@
   pending selection/mention/diagnostics snapshots, debug notifications, and context hook wiring.
 - `connection.ts` owns undici WebSocket connect, timeout, auth header, hello request,
   hello result validation, JSON-RPC framing, and close handling.
-- `config.ts` owns persisted config in `<project>/.pi/xl0-lovely-ide.json`.
+- `config.ts` declares typed User/Workspace settings through Pi Lovely Config.
 - `selection.ts` owns current IDE selection state, display formatting, snapshot schema,
   line-budgeted selected-text rendering, and notebook/cursor formatting helpers.
 - `mention.ts` owns native mention event formatting, `@file` ref generation, and matching
@@ -189,15 +190,14 @@ Footer status key is `lovely-ide`.
 - Current IDE selection when connected/non-empty; example selected-code preview otherwise.
 - Preview refreshes while open as native IDE selection events arrive.
 - Lists discovered IDE endpoints.
-- Config items:
-  - auto-connect on startup;
-  - auto-reconnect on loss;
-  - selection context;
-  - display context messages;
-  - debug raw IDE notifications;
-  - selection text line limit cycle.
+- Settings opens Pi Lovely Config's scoped editor for auto-connect, auto-reconnect,
+  selection context, context-message display, raw-notification debug, and selected-text
+  line limit.
+- User config is `~/.pi/agent/xl0-lovely-ide.json`; Workspace config is
+  `<cwd>/.pi/xl0-lovely-ide.json`. Workspace values override User values, and the old
+  workspace-only file maps directly to the Workspace scope.
 - Includes Disconnect action.
-- Arrow keys navigate; Space toggles/cycles config live; Enter accepts; Esc cancels.
+- Connection selector uses arrows/Enter/Esc; scoped editor updates settings live.
 - Current connection is pre-selected.
 
 Debug notifications:
