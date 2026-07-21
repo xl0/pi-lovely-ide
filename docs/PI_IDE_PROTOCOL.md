@@ -72,6 +72,8 @@ One complete JSON message is sent per WebSocket text frame. Binary frames are no
 
 JSON-RPC `id` values may be strings or numbers. Clients should use monotonically increasing numbers unless they need string ids. Notifications omit `id`.
 
+Unknown request methods must receive JSON-RPC error `-32601` (`Method not found`). Unknown notification methods are ignored because notifications have no response.
+
 ## Hello
 
 After WebSocket connect, Pi sends `hello`.
@@ -95,7 +97,7 @@ After WebSocket connect, Pi sends `hello`.
     },
     "connection": {
       "id": "4c6df0ec-5a7b-4b9f-9332-5f0e7c9335ce",
-      "subscriptions": ["selection", "mention"]
+      "subscriptions": ["selection", "mention", "diagnostics"]
     },
     "workspace": "/home/me/project"
   }
@@ -112,7 +114,7 @@ Fields:
 - `session.id: string` — stable Pi session id.
 - `session.name?: string` — human session label.
 - `connection.id: string` — stable unique id for this WebSocket connection, scoped to this Pi process/session lifetime.
-- `connection.subscriptions?: string[]` — IDE-originated event types this connection wants. Valid v1 values are `selection` and `mention`. Missing or empty means no events. Unknown strings are ignored. Subscriptions are fixed for the lifetime of the WebSocket connection; changing them requires reconnecting.
+- `connection.subscriptions?: string[]` — IDE-originated event types this connection wants. Valid v1 values are `selection`, `mention`, and `diagnostics`. Missing or empty means no events. Unknown strings are ignored. Subscriptions are fixed for the lifetime of the WebSocket connection; changing them requires reconnecting.
 - `workspace: string` — Pi cwd/workspace for this connection.
 
 IDE response:
@@ -351,6 +353,81 @@ Explicit user action from the IDE to insert/send a file/range reference to one P
 ```
 
 Pi may render mention text as a human 1-based line reference, e.g. `@src/app.ts#11-13`; whole file as `@src/app.ts`; notebook spans with a cell selector before the optional cell-relative range, e.g. `@analysis.ipynb[cell abc123]#2:1-3:5` or `@analysis.ipynb[cell 4]`.
+
+## Diagnostics event
+
+Explicit IDE action can attach a diagnostics snapshot to the next Pi prompt:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "event",
+  "params": {
+    "type": "diagnostics",
+    "scope": "selection",
+    "file": "/home/me/project/src/app.ts",
+    "selectionLines": [
+      {
+        "start": 10,
+        "end": 12,
+        "text": {
+          "head": "const value: number = input;\nreturn value;\n}",
+          "totalCharacters": 44,
+          "totalLines": 3
+        }
+      }
+    ],
+    "documents": [
+      {
+        "uri": "file:///home/me/project/src/app.ts",
+        "diagnostics": [
+          {
+            "message": "Type 'string' is not assignable to type 'number'.",
+            "severity": "Error",
+            "range": {
+              "start": { "line": 10, "character": 4 },
+              "end": { "line": 10, "character": 9 }
+            },
+            "source": "typescript",
+            "code": "2322"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Fields:
+
+- `scope: "selection" | "file" | "workspace"` — what the IDE action captured.
+- `file: string | null` — absolute target file for selection/file scope; `null` for workspace scope.
+- `cell?: CellAddress` — target notebook cell for selection/file scope.
+- `selectionLines: SelectedLineRange[]` — required for selection scope and omitted otherwise.
+  Zero-based inclusive line ranges covered by the IDE selections; character columns are
+  intentionally omitted. Each range carries a bounded `TextExcerpt` of the complete selected
+  lines. Ranges and text are cell-relative when `cell` is present.
+- `documents: DiagnosticDocument[]` — diagnostics captured when the user triggered the action.
+- `document.uri: string` — IDE document URI.
+- `document.file?: string` — underlying absolute file path for a virtual notebook-cell document.
+- `document.cell?: CellAddress` — notebook cell containing this document's diagnostics.
+- `diagnostic.message: string`
+- `diagnostic.severity: "Error" | "Warning" | "Information" | "Hint"`
+- `diagnostic.range` — zero-based LSP-style half-open range. Unlike selection/mention span ranges, `end` is exclusive.
+- `diagnostic.source?: string`
+- `diagnostic.code?: string` — numeric IDE codes are converted to strings.
+
+Pi may paste a user-facing marker such as `[problems: src/app.ts#11-13]`,
+`[problems: analysis.ipynb[cell abc123]#1-6]`, `[problems: src/app.ts]`, or
+`[problems: workspace]` into its editor. Selection-scoped model context should also carry
+the selected 1-based line ranges and optional cell id/index. Pi should inject only snapshots
+whose markers remain in the submitted prompt.
+
+Selection-scoped model context includes both selected code and intersecting diagnostics. Pi
+may apply one bound to all model-visible Problems context across message history; when it does,
+it saves the full context to a temporary file and tells the model where to read it.
+
+Diagnostics are cached state captured by explicit IDE action. The event does not force a language server refresh or guarantee that every workspace file has been analyzed.
 
 ## Ping
 

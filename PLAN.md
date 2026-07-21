@@ -10,7 +10,8 @@
 - [x] PID advisory. Clean stale lockfiles only for `protocol: "pi-ide"`, present dead PID, and known same OS/PID namespace. No port probing or TTL in v1.
 - [x] Multi-root workspaces supported; agent cwd matches equal/descendant of any root.
 - [x] Client sends `hello` with `version`, `client { name, version, pid, mode }`, `session { id, name? }`, `connection { id, subscriptions }`, and `workspace`.
-- [x] Static connection subscriptions; v1 events are `selection` and `mention`; unknown subscriptions/events ignored.
+- [x] Static connection subscriptions; v1 events are `selection`, `mention`, and `diagnostics`; unknown subscriptions/events ignored.
+- [x] Unknown requests fail immediately with JSON-RPC `-32601`; unknown notifications are ignored.
 - [x] IDE groups multiple connections by `session.id`; routes events by `connection.subscriptions`.
 - [x] Pi notifies IDE of post-hello session-name changes via `session_info_changed`; IDE target pickers use latest name.
 - [x] Events use one JSON-RPC notification method `event` plus `params.type`.
@@ -31,6 +32,22 @@
 ## Follow-ups deferred
 
 - [x] Notebook selection/mention UX: VS Code sends cell-relative text ranges and Pi renders/pastes notebook cell addresses in mentions, status, and context tags.
+
+## IDE Problems
+
+- [x] Preserve LSP half-open diagnostic ranges and document difference from inclusive selection ranges.
+- [x] Add VS Code commands for active-document/selection and workspace Problems attachments.
+- [x] Bind `Alt+Shift+D` to active-document/selection Problems attachment.
+- [x] Paste Problems markers with selection line ranges when applicable and inject bounded
+      snapshot output only when referenced by the submitted prompt.
+- [x] Preserve notebook cell id/index and cell-relative lines in Problems markers and context.
+- [x] Include bounded selected-code excerpts in selection-scoped Problems attachments.
+- [x] Notify and send nothing for empty selection/workspace Problems attachments.
+- [x] Bound all model-visible Problems context across message history to one Pi-standard limit;
+      save full context to a temp file and include its path when truncated.
+- [x] Verify root/VS Code typechecks, Biome checks, bundle compile, and attachment context smoke test.
+- [ ] Manual Extension Development Host test against live language-server diagnostics.
+- [ ] Manual test both Problems attachment commands and resulting model context after extension reload.
 
 ## Notebook follow-up decisions still open
 
@@ -72,7 +89,7 @@ Question tree:
   - [x] Implement `Pi: Mention Selection` command and target QuickPick.
 - [x] Update Pi extension to native Pi IDE Protocol.
   - [x] Discover `~/.pi/ide/*.lock`; remove Claude Code discovery/MCP initialize path.
-  - [x] Send `hello` with Pi session id/name, mode, PID, connection id, subscriptions `selection`/`mention`.
+  - [x] Send `hello` with Pi session id/name, mode, PID, connection id, subscriptions `selection`/`mention`/`diagnostics`.
   - [x] Send `session_info_changed` when Pi reports session display-name changes.
   - [x] Parse `event` notifications with `spans`; adapt current single-selection snapshot/at-mention behavior to first ranged span.
   - [x] Keep `/ide` toggles/status/reconnect/debug notifications; add optional visible selection-context messages for manual inspection.

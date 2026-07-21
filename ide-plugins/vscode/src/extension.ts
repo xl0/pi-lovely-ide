@@ -6,7 +6,12 @@ import * as vscode from "vscode"
 import { type WebSocket, WebSocketServer } from "ws"
 import {
 	type HelloParams,
+	type IdeDiagnostic,
+	type IdeDiagnosticsDocument,
+	type IdeDiagnosticsEventParams,
 	type IdeEventParams,
+	type IdeLocationEventParams,
+	type IdeSelectedLineRange,
 	type IdeSpan,
 	type JsonRpcMessage,
 	PI_IDE_AUTH_HEADER,
@@ -43,6 +48,10 @@ function spanSummary(span: IdeSpan): string {
 }
 
 function eventSummary(event: IdeEventParams): string {
+	if (event.type === "diagnostics") {
+		const count = event.documents.reduce((total, document) => total + document.diagnostics.length, 0)
+		return `diagnostics scope=${event.scope} file=${event.file ?? "<workspace>"} documents=${event.documents.length} diagnostics=${count}`
+	}
 	return `${event.type} file=${event.file ?? "<none>"} spans=${event.spans.length}${event.spans.map(span => ` [${spanSummary(span)}]`).join("")}`
 }
 
@@ -119,46 +128,79 @@ function send(socket: WebSocket, message: JsonRpcMessage): void {
 	if (socket.readyState === 1) socket.send(JSON.stringify(message))
 }
 
+function diagnosticSeverity(severity: vscode.DiagnosticSeverity): IdeDiagnostic["severity"] {
+	switch (severity) {
+		case vscode.DiagnosticSeverity.Error:
+			return "Error"
+		case vscode.DiagnosticSeverity.Warning:
+			return "Warning"
+		case vscode.DiagnosticSeverity.Information:
+			return "Information"
+		case vscode.DiagnosticSeverity.Hint:
+			return "Hint"
+	}
+}
+
+function diagnosticCode(code: vscode.Diagnostic["code"]): string | undefined {
+	if (code == null) return undefined
+	return String(typeof code === "object" ? code.value : code)
+}
+
+function protocolDiagnostic(diagnostic: vscode.Diagnostic): IdeDiagnostic {
+	const code = diagnosticCode(diagnostic.code)
+	return {
+		message: diagnostic.message,
+		severity: diagnosticSeverity(diagnostic.severity),
+		range: {
+			start: { line: diagnostic.range.start.line, character: diagnostic.range.start.character },
+			end: { line: diagnostic.range.end.line, character: diagnostic.range.end.character }
+		},
+		...(diagnostic.source ? { source: diagnostic.source } : {}),
+		...(code ? { code } : {})
+	}
+}
+
+function diagnosticsDocument(
+	uri: vscode.Uri,
+	diagnostics: readonly vscode.Diagnostic[],
+	notebookCell?: vscode.NotebookCell
+): IdeDiagnosticsDocument {
+	return {
+		uri: uri.toString(),
+		...(notebookCell ? { file: notebookCell.notebook.uri.fsPath, cell: cellAddress(notebookCell) } : {}),
+		diagnostics: diagnostics.map(protocolDiagnostic)
+	}
+}
+
 function selectedLineCount(range: vscode.Range): number {
 	if (range.end.line === range.start.line) return 1
 	return range.end.character === 0 ? range.end.line - range.start.line : range.end.line - range.start.line + 1
 }
 
-function firstLinesRange(range: vscode.Range, maxLines: number): vscode.Range {
-	if (selectedLineCount(range) <= maxLines) return range
-	return new vscode.Range(range.start, new vscode.Position(range.start.line + maxLines, 0))
-}
+function excerptForText(text: string, totalLines: number): NonNullable<IdeSpan["text"]> {
+	const totalCharacters = text.length
+	if (totalLines <= MAX_SPAN_TEXT_EDGE_LINES * 2 && totalCharacters <= MAX_SPAN_TEXT_EDGE_CHARS * 2) {
+		return { head: text, totalCharacters, totalLines }
+	}
 
-function lastLinesRange(range: vscode.Range, maxLines: number): vscode.Range {
-	const lastSelectedLine = range.end.character === 0 && range.end.line > range.start.line ? range.end.line - 1 : range.end.line
-	const startLine = Math.max(range.start.line, lastSelectedLine - maxLines + 1)
-	const start = startLine === range.start.line ? range.start : new vscode.Position(startLine, 0)
-	return new vscode.Range(start, range.end)
+	const lines = text.split(/\r?\n/)
+	const headText = lines.slice(0, MAX_SPAN_TEXT_EDGE_LINES).join("\n")
+	const tailText = lines.slice(-MAX_SPAN_TEXT_EDGE_LINES).join("\n")
+	return {
+		head: headText.slice(0, MAX_SPAN_TEXT_EDGE_CHARS),
+		tail: tailText.slice(-MAX_SPAN_TEXT_EDGE_CHARS),
+		totalCharacters,
+		totalLines,
+		...(headText.length > MAX_SPAN_TEXT_EDGE_CHARS ? { headTruncated: true } : {}),
+		...(tailText.length > MAX_SPAN_TEXT_EDGE_CHARS ? { tailTruncated: true } : {})
+	}
 }
 
 function textForRange(document: vscode.TextDocument, range: vscode.Range): Pick<IdeSpan, "text"> {
 	const start = document.offsetAt(range.start)
 	const end = document.offsetAt(range.end)
 	if (end <= start) return {}
-
-	const totalCharacters = end - start
-	const totalLines = selectedLineCount(range)
-	if (totalLines <= MAX_SPAN_TEXT_EDGE_LINES * 2 && totalCharacters <= MAX_SPAN_TEXT_EDGE_CHARS * 2) {
-		return { text: { head: document.getText(range), totalCharacters, totalLines } }
-	}
-
-	const headText = document.getText(firstLinesRange(range, MAX_SPAN_TEXT_EDGE_LINES))
-	const tailText = document.getText(lastLinesRange(range, MAX_SPAN_TEXT_EDGE_LINES))
-	return {
-		text: {
-			head: headText.slice(0, MAX_SPAN_TEXT_EDGE_CHARS),
-			tail: tailText.slice(-MAX_SPAN_TEXT_EDGE_CHARS),
-			totalCharacters,
-			totalLines,
-			...(headText.length > MAX_SPAN_TEXT_EDGE_CHARS ? { headTruncated: true } : {}),
-			...(tailText.length > MAX_SPAN_TEXT_EDGE_CHARS ? { tailTruncated: true } : {})
-		}
-	}
+	return { text: excerptForText(document.getText(range), selectedLineCount(range)) }
 }
 
 function endLineBeforeTrailingNewline(document: vscode.TextDocument, selection: vscode.Selection): vscode.Position | undefined {
@@ -194,6 +236,16 @@ function findNotebookCell(document: vscode.TextDocument): vscode.NotebookCell | 
 	return undefined
 }
 
+function findOpenNotebookCell(uri: vscode.Uri): vscode.NotebookCell | undefined {
+	const documentUri = uri.toString()
+	for (const notebook of vscode.workspace.notebookDocuments) {
+		for (const cell of notebook.getCells()) {
+			if (cell.document.uri.toString() === documentUri) return cell
+		}
+	}
+	return undefined
+}
+
 function spansForSelections(document: vscode.TextDocument, selections: readonly vscode.Selection[]): IdeSpan[] {
 	return selections.map(selection => ({
 		range: rangeForSelection(document, selection),
@@ -201,7 +253,7 @@ function spansForSelections(document: vscode.TextDocument, selections: readonly 
 	}))
 }
 
-function eventForTextEditorSelection(event: vscode.TextEditorSelectionChangeEvent): IdeEventParams | undefined {
+function eventForTextEditorSelection(event: vscode.TextEditorSelectionChangeEvent): IdeLocationEventParams | undefined {
 	if (event.textEditor.document.uri.scheme === "vscode-notebook-cell") {
 		const cell = findNotebookCell(event.textEditor.document)
 		return cell
@@ -219,7 +271,7 @@ function eventForTextEditorSelection(event: vscode.TextEditorSelectionChangeEven
 	}
 }
 
-function currentMentionEvent(): IdeEventParams | undefined {
+function currentMentionEvent(): IdeLocationEventParams | undefined {
 	const editor = vscode.window.activeTextEditor
 	if (!editor) return undefined
 	if (editor.document.uri.scheme === "vscode-notebook-cell") {
@@ -237,6 +289,25 @@ function label(conn: PiConnection): string {
 	return `${s.name ?? s.id} (${c.name} pid ${c.pid}${c.mode ? ` ${c.mode}` : ""})`
 }
 
+async function pickTarget(subscription: "mention" | "diagnostics", emptyMessage: string): Promise<PiConnection | undefined> {
+	const targets = [...connections.values()].filter(conn => conn.hello.connection.subscriptions?.includes(subscription))
+	const subject = subscription === "diagnostics" ? "problems" : subscription
+	let target = targets[0]
+	if (!target) {
+		void vscode.window.showInformationMessage(emptyMessage)
+		return undefined
+	}
+	if (targets.length > 1) {
+		const picked = await vscode.window.showQuickPick(
+			targets.map(conn => ({ label: label(conn), conn })),
+			{ placeHolder: `Send ${subject} to Pi` }
+		)
+		if (!picked) return undefined
+		target = picked.conn
+	}
+	return target
+}
+
 async function mentionSelection(): Promise<void> {
 	const event = currentMentionEvent()
 	if (!event) {
@@ -244,20 +315,89 @@ async function mentionSelection(): Promise<void> {
 		return
 	}
 	logChannel?.info(`Mention command ${eventSummary(event)}`)
-	const targets = [...connections.values()].filter(conn => conn.hello.connection.subscriptions?.includes("mention"))
-	let target = targets[0]
-	if (!target) {
-		void vscode.window.showInformationMessage("No Pi agent subscribed to mentions.")
-		return
+	const target = await pickTarget("mention", "No Pi agent subscribed to mentions.")
+	if (!target) return
+	logChannel?.debug(`Send ${eventSummary(event)} to ${label(target)}`)
+	send(target.socket, { jsonrpc: "2.0", method: "event", params: event })
+}
+
+function intersectsSelection(diagnostic: vscode.Diagnostic, selection: vscode.Selection): boolean {
+	if (diagnostic.range.isEmpty) {
+		return !diagnostic.range.start.isBefore(selection.start) && diagnostic.range.start.isBefore(selection.end)
 	}
-	if (targets.length > 1) {
-		const picked = await vscode.window.showQuickPick(
-			targets.map(conn => ({ label: label(conn), conn })),
-			{ placeHolder: "Send mention to Pi" }
-		)
-		if (!picked) return
-		target = picked.conn
+	return selection.start.isBefore(diagnostic.range.end) && diagnostic.range.start.isBefore(selection.end)
+}
+
+function selectedLineRange(document: vscode.TextDocument, selection: vscode.Selection): IdeSelectedLineRange {
+	const end = selection.end.character === 0 && selection.end.line > selection.start.line ? selection.end.line - 1 : selection.end.line
+	const text = Array.from(
+		{ length: end - selection.start.line + 1 },
+		(_, index) => document.lineAt(selection.start.line + index).text
+	).join("\n")
+	return { start: selection.start.line, end, text: excerptForText(text, end - selection.start.line + 1) }
+}
+
+function currentDiagnosticsEvent(): IdeDiagnosticsEventParams | undefined {
+	const editor = vscode.window.activeTextEditor
+	if (!editor) {
+		void vscode.window.showWarningMessage("No active editor to attach problems from")
+		return undefined
 	}
+	const selections = editor.selections.filter(selection => !selection.isEmpty)
+	const diagnostics = vscode.languages
+		.getDiagnostics(editor.document.uri)
+		.filter(diagnostic => selections.length === 0 || selections.some(selection => intersectsSelection(diagnostic, selection)))
+	if (selections.length && diagnostics.length === 0) {
+		void vscode.window.showInformationMessage("No problems in selection.")
+		return undefined
+	}
+	let file = editor.document.uri.fsPath
+	let cell: ReturnType<typeof cellAddress> | undefined
+	let notebookCell: vscode.NotebookCell | undefined
+	if (editor.document.uri.scheme === "vscode-notebook-cell") {
+		notebookCell = findNotebookCell(editor.document)
+		if (!notebookCell) {
+			void vscode.window.showWarningMessage("Active notebook cell could not be resolved")
+			return undefined
+		}
+		file = notebookCell.notebook.uri.fsPath
+		cell = cellAddress(notebookCell)
+	}
+	const documents = [diagnosticsDocument(editor.document.uri, diagnostics, notebookCell)]
+	if (selections.length) {
+		const selectionLines = selections
+			.map(selection => selectedLineRange(editor.document, selection))
+			.sort((a, b) => a.start - b.start || a.end - b.end)
+		return {
+			type: "diagnostics",
+			scope: "selection",
+			file,
+			...(cell ? { cell } : {}),
+			selectionLines,
+			documents
+		}
+	}
+	return { type: "diagnostics", scope: "file", file, ...(cell ? { cell } : {}), documents }
+}
+
+function workspaceDiagnosticsEvent(): IdeDiagnosticsEventParams | undefined {
+	const documents = vscode.languages.getDiagnostics().flatMap(([uri, diagnostics]) => {
+		if (diagnostics.length === 0) return []
+		const notebookCell = uri.scheme === "vscode-notebook-cell" ? findOpenNotebookCell(uri) : undefined
+		if (!vscode.workspace.getWorkspaceFolder(notebookCell?.notebook.uri ?? uri)) return []
+		return [diagnosticsDocument(uri, diagnostics, notebookCell)]
+	})
+	if (documents.length === 0) {
+		void vscode.window.showInformationMessage("No workspace problems.")
+		return undefined
+	}
+	return { type: "diagnostics", scope: "workspace", file: null, documents }
+}
+
+async function attachDiagnostics(event: IdeDiagnosticsEventParams): Promise<void> {
+	logChannel?.info(`Diagnostics command ${eventSummary(event)}`)
+	const target = await pickTarget("diagnostics", "No Pi agent available for problems.")
+	if (!target) return
 	logChannel?.debug(`Send ${eventSummary(event)} to ${label(target)}`)
 	send(target.socket, { jsonrpc: "2.0", method: "event", params: event })
 }
@@ -283,7 +423,10 @@ function handleMessage(socket: WebSocket, raw: string): void {
 			send(socket, {
 				jsonrpc: "2.0",
 				id: parsed.id,
-				result: { version: PI_IDE_PROTOCOL_VERSION, ide: { name: vscode.env.appName, version: vscode.version } }
+				result: {
+					version: PI_IDE_PROTOCOL_VERSION,
+					ide: { name: vscode.env.appName, version: vscode.version }
+				}
 			})
 			return
 		}
@@ -302,6 +445,9 @@ function handleMessage(socket: WebSocket, raw: string): void {
 			if (msg.method === "hello" && msg.id != null) {
 				logChannel?.warn("Rejected invalid hello")
 				send(socket, { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "invalid hello" } })
+			} else if (msg.method != null && msg.id != null) {
+				logChannel?.warn(`Rejected unknown request method ${msg.method}`)
+				send(socket, { jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } })
 			}
 			return
 		case "event":
@@ -342,6 +488,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand("pi-lovely-ide.mentionSelection", mentionSelection),
+		vscode.commands.registerCommand("pi-lovely-ide.attachDiagnostics", () => {
+			const event = currentDiagnosticsEvent()
+			if (event) return attachDiagnostics(event)
+		}),
+		vscode.commands.registerCommand("pi-lovely-ide.attachWorkspaceDiagnostics", () => {
+			const event = workspaceDiagnosticsEvent()
+			if (event) return attachDiagnostics(event)
+		}),
 		vscode.window.onDidChangeTextEditorSelection(event => {
 			if (event.textEditor.document.uri.scheme === "output") return
 			logVsCodeEvent("onDidChangeTextEditorSelection", JSON.stringify(event))

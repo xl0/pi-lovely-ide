@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { readdir, readFile, realpath } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { dirname, join, relative } from "node:path"
+import { dirname, isAbsolute, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type ContextEvent, type ExtensionAPI, type ExtensionContext, getAgentDir, highlightCode } from "@earendil-works/pi-coding-agent"
 import { Text } from "@earendil-works/pi-tui"
@@ -24,7 +24,8 @@ import {
 	injectIdeContexts,
 	validateIdeContextDetails
 } from "./context.js"
-import { formatAtMention, type MentionSnapshot, mentionSnapshotFromEvent, mentionsReferencedInPrompt } from "./mention.js"
+import { type DiagnosticsSnapshot, diagnosticsSnapshotFromEvent } from "./diagnostics.js"
+import { formatAtMention, type MentionSnapshot, mentionSnapshotFromEvent, snapshotsReferencedInPrompt } from "./mention.js"
 import { displayPathForCwd, type SelectionSnapshot, SelectionState } from "./selection.js"
 
 const require = createRequire(import.meta.url)
@@ -63,6 +64,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let pendingSelection: SelectionSnapshot | null | undefined
 	let pendingMentions: MentionSnapshot[] = []
 	let pendingPromptMentions: MentionSnapshot[] = []
+	let pendingDiagnostics: DiagnosticsSnapshot[] = []
+	let pendingPromptDiagnostics: DiagnosticsSnapshot[] = []
 	let selectionPreviewRefresh: (() => void) | null = null
 	const debugNotificationViews = new Set<Text>()
 
@@ -94,7 +97,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	function isEqualOrDescendant(path: string, root: string): boolean {
 		const rel = relative(root, path)
-		return rel === "" || (!!rel && !rel.startsWith("..") && !rel.startsWith("/"))
+		return rel === "" || (!!rel && !rel.startsWith("..") && !isAbsolute(rel))
 	}
 
 	function helloParams(ctx: ExtensionContext): HelloParams {
@@ -113,7 +116,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 			},
 			connection: {
 				id: randomUUID(),
-				subscriptions: ["selection", "mention"]
+				subscriptions: ["selection", "mention", "diagnostics"]
 			},
 			workspace: ctx.cwd
 		}
@@ -228,29 +231,41 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	}
 
 	function handleMessage(message: JsonRpcMessage, _raw: string, activeConnection: IdeConnection): void {
+		if (!currentCtx || activeConnection !== connection) return
 		debugNotifyRawIdeNotification(message)
+		const parsed = parseIdeJsonRpcMessage(message)
 		if (message.id != null && message.method != null) {
-			activeConnection.send({ jsonrpc: "2.0", id: message.id, result: {} })
+			activeConnection.send(
+				parsed.kind === "ping"
+					? { jsonrpc: "2.0", id: message.id, result: {} }
+					: { jsonrpc: "2.0", id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } }
+			)
 			return
 		}
 
-		const parsed = parseIdeJsonRpcMessage(message)
 		if (parsed.kind !== "event") return
 
-		if (parsed.type === "selection") {
+		if (parsed.params.type === "selection") {
 			selection.setCurrent(parsed.params)
 			updateStatus()
 			selectionPreviewRefresh?.()
 			return
 		}
 
-		if (parsed.type === "mention") {
-			if (!currentCtx) return
+		if (parsed.params.type === "mention") {
 			const mentionSnapshot = mentionSnapshotFromEvent(parsed.params, displayPath)
 			const mention = mentionSnapshot?.ref ?? formatAtMention(parsed.params, displayPath)
 			if (!mention) return
 			if (mentionSnapshot) pendingMentions.push(mentionSnapshot)
 			currentCtx.ui.pasteToEditor(`${mention} `)
+			updateStatus()
+			return
+		}
+
+		if (parsed.params.type === "diagnostics") {
+			const snapshot = diagnosticsSnapshotFromEvent(parsed.params, displayPath)
+			pendingDiagnostics = [...pendingDiagnostics.filter(pending => pending.ref !== snapshot.ref), snapshot]
+			currentCtx.ui.pasteToEditor(`${snapshot.ref} `)
 			updateStatus()
 		}
 	}
@@ -373,8 +388,10 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		// Pi emits before_agent_start in the same idle prompt() call; streamed steer/followUp gets no rich context.
 		const capturePromptContext = isUserInput && streamingBehavior === undefined && ctx.isIdle()
 		if (isUserInput) {
-			pendingPromptMentions = capturePromptContext ? mentionsReferencedInPrompt(pendingMentions, event.text) : []
+			pendingPromptMentions = capturePromptContext ? snapshotsReferencedInPrompt(pendingMentions, event.text) : []
+			pendingPromptDiagnostics = capturePromptContext ? snapshotsReferencedInPrompt(pendingDiagnostics, event.text) : []
 			pendingMentions = []
+			pendingDiagnostics = []
 		}
 		if (config.selectionContext && capturePromptContext) {
 			pendingSelection = selection.snapshotCurrent()
@@ -386,22 +403,27 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", event => {
 		const mentions = pendingPromptMentions
+		const diagnostics = pendingPromptDiagnostics
 		const snapshot = config.selectionContext ? (pendingSelection ?? null) : null
 		pendingPromptMentions = []
+		pendingPromptDiagnostics = []
 		pendingSelection = undefined
 		const result: {
 			message?: { customType: string; content: string; display: boolean; details: IdeContextDetails }
 			systemPrompt?: string
 		} = {}
-		if (mentions.length || snapshot) {
+		if (mentions.length || diagnostics.length || snapshot) {
 			result.message = {
 				customType: IDE_CONTEXT_CUSTOM_TYPE,
 				content: "",
 				display: config.displaySelectionMessages,
-				details: { mentions, selection: snapshot }
+				details: { mentions, diagnostics, selection: snapshot }
 			}
 		}
-		if (snapshot && mentions.length === 0) result.systemPrompt = `${event.systemPrompt}\n\n${SELECTION_PROMPT_GUIDELINE}`
+		const hasExplicitSelection = mentions.length > 0 || diagnostics.some(problem => problem.scope === "selection")
+		if (snapshot && !hasExplicitSelection) {
+			result.systemPrompt = `${event.systemPrompt}\n\n${SELECTION_PROMPT_GUIDELINE}`
+		}
 		if (result.message || result.systemPrompt !== undefined) return result
 	})
 
@@ -429,11 +451,15 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	})
 
 	pi.on("session_shutdown", () => {
+		currentCtx?.ui.setStatus(STATUS_KEY, undefined)
+		currentCtx = null
 		pendingSelection = undefined
 		pendingMentions = []
 		pendingPromptMentions = []
+		pendingDiagnostics = []
+		pendingPromptDiagnostics = []
+		selectionPreviewRefresh = null
 		debugNotificationViews.clear()
 		disconnect()
-		currentCtx?.ui.setStatus(STATUS_KEY, undefined)
 	})
 }
