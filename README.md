@@ -38,6 +38,23 @@ Manual smoke test:
 4. Use `/ide` if auto-connect did not connect.
 5. Select text in VS Code; Pi footer should show the file/range.
 6. Run `Pi: Mention Selection`; Pi input should receive `@file#x-y`.
+7. Run `Pi: Attach Problems`; Pi input should receive `[problems: path#line-range]`.
+
+## IDE problems
+
+VS Code also provides `Pi: Attach Problems` and `Pi: Attach Workspace Problems`.
+The file command captures diagnostics intersecting non-empty editor selections, or all
+active-file diagnostics when there is no selection. It pastes
+`[problems: path#line-range]` for a selection or `[problems: path]` for the whole file;
+the workspace command pastes `[problems: workspace]`. Keep the marker in the submitted
+prompt to attach that problems snapshot. Notebook markers and context include the cell
+id/index, with cell-relative line ranges. A selection without Problems shows a notification
+and sends nothing to Pi. Selection-scoped Problems include a bounded snapshot of the selected
+code. If aggregate Problems context exceeds Pi's standard output limit, Pi saves the full
+context across message history to a temporary file and gives the model its path. Workspace
+attachment similarly notifies and sends nothing when no workspace Problems remain.
+
+Default shortcuts are `Alt+Shift+L` for `Pi: Mention Selection` and `Alt+Shift+D` for `Pi: Attach Problems`.
 
 ## Protocol docs
 

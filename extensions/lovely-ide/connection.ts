@@ -64,6 +64,7 @@ export class IdeConnection {
 			const onError = () => fail(new Error("websocket error"))
 
 			const onMessage = (event: Event) => {
+				if (this.socket !== socket) return
 				const data = (event as unknown as { data: unknown }).data
 				const raw = typeof data === "string" ? data : String(data)
 				const msg = parseJsonRpcMessage(raw)

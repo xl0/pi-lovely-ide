@@ -1,5 +1,5 @@
 import * as v from "valibot"
-import type { IdeEventParams } from "../../packages/protocol/src/index.js"
+import type { IdeLocationEventParams } from "../../packages/protocol/src/index.js"
 import {
 	formatSnapshotContext,
 	formatSnapshotReference,
@@ -14,13 +14,16 @@ export const MentionSnapshotSchema = v.looseObject({
 })
 export type MentionSnapshot = v.InferOutput<typeof MentionSnapshotSchema>
 
-export function formatAtMention(event: IdeEventParams, displayPath: (path: string) => string): string | undefined {
+export function formatAtMention(event: IdeLocationEventParams, displayPath: (path: string) => string): string | undefined {
 	const snapshot = selectionSnapshotFromEvent(event)
 	if (snapshot) return formatSnapshotReference(snapshot, displayPath, { prefix: "@", collapseCursor: true })
 	return event.file ? `@${displayPath(event.file)}` : undefined
 }
 
-export function mentionSnapshotFromEvent(event: IdeEventParams, displayPath: (path: string) => string): MentionSnapshot | undefined {
+export function mentionSnapshotFromEvent(
+	event: IdeLocationEventParams,
+	displayPath: (path: string) => string
+): MentionSnapshot | undefined {
 	const ref = formatAtMention(event, displayPath)
 	const snapshot = selectionSnapshotFromEvent(event)
 	return ref && snapshot ? { ref, snapshot } : undefined
@@ -46,18 +49,18 @@ function countRefOccurrences(text: string, ref: string): number {
 	return count
 }
 
-export function mentionsReferencedInPrompt(mentions: MentionSnapshot[], prompt: string): MentionSnapshot[] {
+export function snapshotsReferencedInPrompt<T extends { ref: string }>(snapshots: T[], prompt: string): T[] {
 	const counts = new Map<string, number>()
 	const used = new Map<string, number>()
-	return mentions.filter(mention => {
-		let count = counts.get(mention.ref)
+	return snapshots.filter(snapshot => {
+		let count = counts.get(snapshot.ref)
 		if (count === undefined) {
-			count = countRefOccurrences(prompt, mention.ref)
-			counts.set(mention.ref, count)
+			count = countRefOccurrences(prompt, snapshot.ref)
+			counts.set(snapshot.ref, count)
 		}
-		const usedCount = used.get(mention.ref) ?? 0
+		const usedCount = used.get(snapshot.ref) ?? 0
 		if (usedCount >= count) return false
-		used.set(mention.ref, usedCount + 1)
+		used.set(snapshot.ref, usedCount + 1)
 		return true
 	})
 }

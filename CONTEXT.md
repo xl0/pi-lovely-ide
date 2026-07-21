@@ -20,6 +20,15 @@ _Avoid_: message history, at mention, live IDE state
 An explicit IDE-originated file/range/cell reference inserted into the user's editor message; wire payload uses zero-based line/character range and may include referenced text, while inserted editor text is 1-based.
 _Avoid_: selection context, ambient context
 
+**Problems Attachment**:
+An explicit IDE-originated snapshot of cached code diagnostics inserted into the Pi editor
+as `[problems: path#line-range]`, `[problems: path]`, or `[problems: workspace]` and attached
+to the next submitted prompt only when that marker remains present. Selection-scoped
+attachments carry 1-based inclusive line ranges without character columns. Notebook
+attachments also carry a **Notebook Cell Address** and use cell-relative lines. Selection-scoped
+attachments snapshot both selected code and intersecting diagnostics when the command runs.
+_Avoid_: raw LSP output, live diagnostics, diagnostics tool call
+
 **Pi IDE Protocol**:
 The pi-native local IDE protocol for editor-originated context events such as selection and mentions. It is not Claude MCP compatibility.
 _Avoid_: Claude IDE protocol, MCP protocol
@@ -33,7 +42,7 @@ One Pi process/session in a workspace, identified to the IDE by process PID plus
 _Avoid_: workspace, IDE server
 
 **IDE Connection Subscription**:
-The event types a specific Pi IDE WebSocket connection asks the IDE to send, currently `selection` and `mention`.
+The event types a specific Pi IDE WebSocket connection asks the IDE to send, currently `selection`, `mention`, and `diagnostics`.
 _Avoid_: capability, tool permission, purpose
 
 **IDE Span**:
@@ -49,6 +58,9 @@ _Avoid_: file line in notebook JSON
 - A **Selection Snapshot** is captured from at most one **IDE Selection** per user-submitted turn and may include a text excerpt supplied by the IDE.
 - **Selection Context** is transient and is not stored in message history.
 - An **At Mention** is user-authored message text; **Selection Context** is ambient model context.
+- A **Problems Attachment** snapshots cached code diagnostics when its VS Code command runs; later changes in the IDE's Problems view do not alter it.
+- Selection-scoped **Problems Attachments** contain explicit selected code and replace ambient
+  **Selection Context**. File/workspace attachments can accompany ambient context.
 
 ## Example dialogue
 

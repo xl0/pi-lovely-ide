@@ -3,7 +3,7 @@ import type { ContextEvent } from "@earendil-works/pi-coding-agent"
 import * as v from "valibot"
 import {
 	CellAddressSchema,
-	type IdeEventParams,
+	type IdeLocationEventParams,
 	type IdeSpan,
 	type IdeTextExcerpt,
 	TextExcerptSchema
@@ -71,7 +71,7 @@ function snapshotText(span: IdeSpan): IdeTextExcerpt | undefined {
 	return span.text && span.text.totalCharacters > 0 ? span.text : undefined
 }
 
-export function selectionSnapshotFromEvent(selection: IdeEventParams): SelectionSnapshot | undefined {
+export function selectionSnapshotFromEvent(selection: IdeLocationEventParams): SelectionSnapshot | undefined {
 	if (!selection.file) return undefined
 	const span = selection.spans[0]
 	if (!span) return { filePath: selection.file }
@@ -192,7 +192,7 @@ export class SelectionState {
 
 	constructor(private readonly displayPath: (path: string) => string) {}
 
-	setCurrent(selection: IdeEventParams): void {
+	setCurrent(selection: IdeLocationEventParams): void {
 		this.#current = selectionSnapshotFromEvent(selection) ?? null
 	}
 

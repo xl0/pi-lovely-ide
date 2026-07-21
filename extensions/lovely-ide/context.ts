@@ -1,5 +1,6 @@
 import type { ContextEvent } from "@earendil-works/pi-coding-agent"
 import * as v from "valibot"
+import { DiagnosticsSnapshotSchema, formatDiagnosticsContext } from "./diagnostics.js"
 import { formatMentionContext, MentionSnapshotSchema } from "./mention.js"
 import { appendContextToContent, formatSelectionContext, type SelectedTextLineLimit, SelectionSnapshotSchema } from "./selection.js"
 
@@ -7,6 +8,7 @@ export const IDE_CONTEXT_CUSTOM_TYPE = "lovely-ide.context"
 
 export const IdeContextDetailsSchema = v.looseObject({
 	mentions: v.array(MentionSnapshotSchema),
+	diagnostics: v.optional(v.array(DiagnosticsSnapshotSchema)),
 	selection: v.nullable(SelectionSnapshotSchema)
 })
 export type IdeContextDetails = v.InferOutput<typeof IdeContextDetailsSchema>
@@ -36,8 +38,14 @@ export function formatIdeContextDetails(
 	displayPath: (path: string) => string,
 	selectedTextLineLimit: SelectedTextLineLimit
 ): string {
-	if (details.mentions.length) return formatMentionContext(details.mentions, displayPath, selectedTextLineLimit)
-	return details.selection ? formatSelectionContext(details.selection, displayPath, selectedTextLineLimit) : ""
+	const explicit = []
+	if (details.mentions.length) explicit.push(formatMentionContext(details.mentions, displayPath, selectedTextLineLimit))
+	if (details.diagnostics?.length) explicit.push(formatDiagnosticsContext(details.diagnostics, selectedTextLineLimit))
+	const hasExplicitSelection = details.mentions.length > 0 || details.diagnostics?.some(snapshot => snapshot.scope === "selection")
+	if (!hasExplicitSelection && details.selection) {
+		explicit.push(formatSelectionContext(details.selection, displayPath, selectedTextLineLimit))
+	}
+	return explicit.join("\n")
 }
 
 export function injectIdeContexts(
@@ -59,6 +67,8 @@ export function injectIdeContexts(
 
 	let changed = false
 	const patched: ContextEvent["messages"] = []
+	const diagnosticsContexts = []
+	let diagnosticsTargetIndex = -1
 	for (let i = 0; i < messages.length; i++) {
 		const message = messages[i]
 		if (!message) continue
@@ -71,8 +81,14 @@ export function injectIdeContexts(
 					if (target?.role !== "user") continue
 					let content = target.content
 					const mentions = details.mentions.filter(mention => contentIncludesRef(content, mention.ref))
+					const diagnostics = (details.diagnostics ?? []).filter(snapshot => contentIncludesRef(content, snapshot.ref))
 					if (mentions.length) content = appendContextToContent(content, formatMentionContext(mentions, displayPath, selectedTextLineLimit))
-					if (mentions.length === 0 && selectionContextEnabled && i === lastSelectionMarkerIndex && details.selection) {
+					if (diagnostics.length) {
+						diagnosticsContexts.push(...diagnostics)
+						diagnosticsTargetIndex = j
+					}
+					const hasExplicitSelection = mentions.length > 0 || diagnostics.some(snapshot => snapshot.scope === "selection")
+					if (!hasExplicitSelection && selectionContextEnabled && i === lastSelectionMarkerIndex && details.selection) {
 						content = appendContextToContent(content, formatSelectionContext(details.selection, displayPath, selectedTextLineLimit))
 					}
 					if (content !== target.content) patched[j] = { ...target, content }
@@ -82,6 +98,15 @@ export function injectIdeContexts(
 			continue
 		}
 		patched.push(message)
+	}
+	if (diagnosticsContexts.length && diagnosticsTargetIndex >= 0) {
+		const target = patched[diagnosticsTargetIndex]
+		if (target?.role === "user") {
+			patched[diagnosticsTargetIndex] = {
+				...target,
+				content: appendContextToContent(target.content, formatDiagnosticsContext(diagnosticsContexts, selectedTextLineLimit))
+			}
+		}
 	}
 	return changed ? patched : undefined
 }

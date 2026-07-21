@@ -26,12 +26,25 @@
 			{
 				"command": "pi-lovely-ide.mentionSelection",
 				"title": "Pi: Mention Selection"
+			},
+			{
+				"command": "pi-lovely-ide.attachDiagnostics",
+				"title": "Pi: Attach Problems"
+			},
+			{
+				"command": "pi-lovely-ide.attachWorkspaceDiagnostics",
+				"title": "Pi: Attach Workspace Problems"
 			}
 		],
 		"keybindings": [
 			{
 				"command": "pi-lovely-ide.mentionSelection",
 				"key": "alt+shift+l",
+				"when": "editorTextFocus || notebookEditorFocused"
+			},
+			{
+				"command": "pi-lovely-ide.attachDiagnostics",
+				"key": "alt+shift+d",
 				"when": "editorTextFocus || notebookEditorFocused"
 			}
 		]

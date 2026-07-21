@@ -10,6 +10,7 @@
 - Repo also includes separately distributed VS Code extension in `ide-plugins/vscode/`.
 - Canonical protocol doc: `docs/PI_IDE_PROTOCOL.md`.
 - `docs/CC_IDE_PROTOCOL.md` is historical Claude Code reference only.
+- `archive/IDE_DIAGNOSTICS_TOOL.md` records the removed model-pulled diagnostics design.
 - Root TS config is strict, including `exactOptionalPropertyTypes`.
 - Root scripts type-check/check both Pi package and VS Code subpackage.
 - Runtime validation uses Valibot in shared protocol and extension-local state.
@@ -26,27 +27,28 @@
   - `PI_IDE_AUTH_HEADER = "X-Pi-Ide-Authorization"`.
 - Wire methods/events:
   - Methods: `hello`, `event`, `ping`, `session_info_changed`.
-  - Events: `selection`, `mention`.
+  - Events: `selection`, `mention`, `diagnostics`.
 - Schemas/types cover:
   - JSON-RPC-ish envelopes.
   - IDE lockfiles.
   - hello params/result.
   - event params.
-  - file/cell spans, inclusive ranges, and `TextExcerpt`.
+  - diagnostic event documents.
+  - file/cell spans, inclusive ranges, selected line ranges, and `TextExcerpt`.
 - Parsers:
   - `parseJsonRpcMessage(raw)`.
   - `parseIdeJsonRpcMessage(message)`.
   - `parseIdeMessage(raw)`.
   - `parseIdeLockFile(raw)`.
-  - `parseIdeEventParams(value)`.
-- `parseIdeEventParams` rejects spans without either `range` or `cell`, except `file: null` with no spans.
+- Internal `parseIdeEventParams` validates selection/mention spans and diagnostics scope/file/selected-line consistency.
+- Only externally consumed names are exported; internal schemas/aliases stay module-private.
 
 ## Pi extension layout
 
 `extensions/lovely-ide/` contains one Pi extension.
 
 - `index.ts` owns lifecycle, IDE discovery/reconnect, event effects, footer status,
-  pending selection/mention snapshots, debug notifications, and context hook wiring.
+  pending selection/mention/diagnostics snapshots, debug notifications, and context hook wiring.
 - `connection.ts` owns undici WebSocket connect, timeout, auth header, hello request,
   hello result validation, JSON-RPC framing, and close handling.
 - `config.ts` owns persisted config in `<project>/.pi/xl0-lovely-ide.json`.
@@ -54,6 +56,8 @@
   line-budgeted selected-text rendering, and notebook/cursor formatting helpers.
 - `mention.ts` owns native mention event formatting, `@file` ref generation, and matching
   pending pasted refs against raw prompt text.
+- `diagnostics.ts` owns full diagnostics snapshots, aggregate model-context truncation/temp-file
+  persistence, and user-facing `<problems>` formatting.
 - `context.ts` owns `lovely-ide.context` marker schema validation, display rendering,
   model-context injection, and marker stripping.
 - `command.ts` owns `/ide` selector UI.
@@ -79,13 +83,18 @@ Connection behavior:
 - Concurrent connection attempts are skipped/blocked.
 - Connect timeout is 3s.
 - Hello includes protocol version, client name/version/PID/mode, Pi session id/name,
-  random connection id, subscriptions `selection`/`mention`, and workspace.
+  random connection id, subscriptions `selection`/`mention`/`diagnostics`, and workspace.
 - Pi sends `session_info_changed` notifications after `hello` when Pi's session name
   changes; IDEs update the stored name for that connection.
 - Hello result is validated.
-- IDE-initiated JSON-RPC requests, including `ping`, get `{}` result.
+- Unsupported request methods fail immediately with JSON-RPC `-32601`; unknown notifications
+  are ignored.
+- Messages queued after local connection close are ignored.
+- IDE-initiated `ping` gets `{}`; unsupported requests get JSON-RPC `-32601`.
 - Incoming `event` notifications are parsed via shared protocol helpers.
 - Auto-connect and auto-reconnect are governed by persisted config.
+- Session shutdown clears the captured extension context before disconnect; stale connection
+  callbacks are ignored unless they belong to the current active connection.
 
 ## Selection, mentions, and model context
 
@@ -112,23 +121,52 @@ Mention events:
   `@file[cell id|1-based-index]`, and
   `@file[cell id|1-based-index]#line:char-line:char`.
 
+Problems attachments:
+
+- Receive structured diagnostics events, store full snapshots, and paste
+  `[problems: path#line-range]`, `[problems: path]`, or `[problems: workspace]`
+  into the Pi editor.
+- Only markers retained in the next eligible prompt receive `<problems>` context.
+- A newer pending snapshot replaces an older snapshot with the same marker.
+- Selection-scoped snapshots contain diagnostics intersecting non-empty VS Code selections;
+  their 1-based inclusive selected line ranges appear in both marker and `<problems>` metadata.
+- Selection-scoped snapshots also contain bounded excerpts of the complete selected lines;
+  `<selected_code>` context replaces potentially stale ambient Selection Context.
+- A selection with no intersecting Problems shows an IDE notification and sends nothing.
+- Workspace Problems omit empty diagnostic documents; no remaining Problems shows an IDE
+  notification and sends nothing.
+- Multiple selection line ranges are sent in document order for deterministic markers.
+- Notebook Problems markers, metadata, and rendered diagnostic locations include cell id/index;
+  selected and diagnostic lines are cell-relative.
+- Without a selection the command captures all active-document diagnostics.
+- A separate workspace command captures cached diagnostics for workspace documents.
+- Diagnostic ranges preserve zero-based LSP half-open semantics on the wire and render as
+  1-based `path:line:character [severity source code] message` lines.
+- All model-visible Problems context across message history shares one Pi-standard output
+  bound. It is aggregated on the latest referenced Problems message; full context is saved
+  to a private temp file and its path appears in the truncation note.
+- Temp-file persistence failures throw an explicit error rather than silently losing full
+  Problems context.
+
 Prompt/context flow:
 
 - Only idle interactive/RPC prompts get rich selection context.
 - `before_agent_start` stores one `lovely-ide.context` custom message when prompt has valid
-  pasted IDE mentions and/or pending ambient selection.
+  pasted IDE mentions, Problems attachments, and/or pending ambient selection.
 - Context marker content is empty; structured data lives in `details`.
 - Marker display is controlled by `displaySelectionMessages`.
-- If ambient selection will be injected and no valid mention takes precedence,
+- If ambient selection will be injected and no valid mention or selection-scoped Problems
+  attachment takes precedence,
   `before_agent_start` adds one system-prompt guideline telling model that
   `<selection>`/`<cursor>` blocks may be irrelevant.
 - `context` strips all extension markers and debug notifications from model messages.
-- Valid mentions are appended to preceding user message as `<mention ...>...</mention>`
-  or self-closed tags.
-- If message has any valid mention, ambient selection is skipped for that message.
+- Valid mentions and Problems attachments are appended to preceding user message as
+  `<mention>`/`<problems>` context.
+- If message has a valid explicit mention or selection-scoped Problems attachment, ambient
+  selection is skipped for that message.
 - Otherwise latest ambient selection is appended as `<selection ...>...</selection>`,
   self-closed `<selection ... />`, or `<cursor ... />`.
-- Steer/follow-up prompts keep only the plain pasted `@` ref; no rich IDE context.
+- Steer/follow-up prompts keep only plain pasted references; no rich IDE context.
 
 Selected text rendering:
 
@@ -178,13 +216,17 @@ Debug notifications:
 - Extension ID: `xl0.pi-lovely-ide`.
 - VS Code engine: `^1.100.0`.
 - Command: `Pi: Mention Selection` (`pi-lovely-ide.mentionSelection`).
-- Default keybinding: `Alt+Shift+L` when editor text or notebook editor is focused.
+- Commands: `Pi: Attach Problems` and `Pi: Attach Workspace Problems`.
+- Default keybindings when editor text or notebook editor is focused:
+  - `Alt+Shift+L`: mention selection.
+  - `Alt+Shift+D`: attach Problems.
 - Uses `ws`, Valibot, and shared protocol module.
 - `tsc --noEmit` type-checks.
 - `esbuild.mjs` bundles/minifies CommonJS output to `dist/extension.cjs`.
 - `.vscodeignore` excludes source/config/deps/lockfiles/maps for VSIX packaging.
-- Root `dev-install-vscode-plugin.sh [ide-cli]` installs deps, packages VSIX, and installs
-  through `code` by default or another CLI such as `cursor`.
+- Root `dev-install-vscode-plugin.sh [ide-cli]` installs deps, removes stale VSIX artifacts,
+  packages the current plugin version, and installs through `code` by default or another
+  CLI such as `cursor`.
 - Root `.vscode/launch.json` runs Extension Development Host from the subpackage;
   `.vscode/tasks.json` compiles first.
 
@@ -231,7 +273,8 @@ and outgoing protocol summaries without raw selected text.
 
 ## Non-goals/current absences
 
-- No Pi tools.
-- No IDE tool calls.
+- No model-callable IDE diagnostics tool; Problems are explicit user attachments.
+- No IDE mutation/execution tool calls.
 - No custom footer beyond status key.
 - No notebook execution protocol yet.
+- No access to raw language-server output channels/logs.
