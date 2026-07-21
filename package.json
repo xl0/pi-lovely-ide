@@ -31,13 +31,13 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.16",
-		"@earendil-works/pi-coding-agent": "^0.80.2",
+		"@earendil-works/pi-coding-agent": "^0.80.10",
 		"@types/node": "^25.9.2",
 		"@typescript/native-preview": "^7.0.0-dev.20260606.1",
 		"typescript": "^6.0.3"
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": "^0.80.2"
+		"@earendil-works/pi-coding-agent": "^0.80.10"
 	},
 	"pi": {
 		"extensions": [
@@ -45,6 +45,7 @@
 		]
 	},
 	"dependencies": {
+		"@xl0/pi-lovely-config": "^0.1.2",
 		"undici": "^8.4.0",
 		"valibot": "^1.4.0"
 	}

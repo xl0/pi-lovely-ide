@@ -1,88 +1,43 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import * as v from "valibot"
-import { DEFAULT_SELECTED_TEXT_LINE_LIMIT, type SelectedTextLineLimit } from "./selection.js"
+import { defineScopedConfig, field } from "@xl0/pi-lovely-config"
+import { DEFAULT_SELECTED_TEXT_LINE_LIMIT, SELECTED_TEXT_LINE_LIMITS } from "./selection.js"
 
-const CONFIG_FILE = "xl0-lovely-ide.json"
-
-const ConfigSchema = v.looseObject({
-	autoConnectOnStartup: v.optional(v.boolean()),
-	autoReconnect: v.optional(v.boolean()),
-	selectionContext: v.optional(v.boolean()),
-	selectedTextLineLimit: v.optional(v.union([v.literal(0), v.literal(3), v.literal(5), v.literal(9)])),
-	displaySelectionMessages: v.optional(v.boolean()),
-	debugNotifications: v.optional(v.boolean())
-})
-
-export type ConfigKey =
-	| "autoConnectOnStartup"
-	| "autoReconnect"
-	| "selectionContext"
-	| "selectedTextLineLimit"
-	| "displaySelectionMessages"
-	| "debugNotifications"
-export type ToggleKey = Exclude<ConfigKey, "selectedTextLineLimit">
-
-export class ConfigState {
-	#projectDir: string | undefined
-	autoConnectOnStartup = true
-	autoReconnect = true
-	selectionContext = true
-	selectedTextLineLimit: SelectedTextLineLimit = DEFAULT_SELECTED_TEXT_LINE_LIMIT
-	displaySelectionMessages = false
-	debugNotifications = false
-
-	setProjectDir(projectDir: string): void {
-		this.#projectDir = projectDir
-	}
-
-	get disabled(): boolean {
-		return !this.autoConnectOnStartup && !this.autoReconnect
-	}
-
-	async load(): Promise<void> {
-		if (!this.#projectDir) return
-		let parsed: unknown
-		try {
-			parsed = JSON.parse(await readFile(this.path(), "utf8"))
-		} catch {
-			return
+export function createConfigState() {
+	return defineScopedConfig({
+		fileName: "xl0-lovely-ide.json",
+		schema: {
+			autoConnectOnStartup: field.boolean(true, {
+				label: "Auto-connect on startup",
+				description: "Connect automatically to a matching IDE when Pi starts"
+			}),
+			autoReconnect: field.boolean(true, {
+				label: "Auto-reconnect on loss",
+				description: "Reconnect automatically when the IDE connection closes"
+			}),
+			selectionContext: field.boolean(true, {
+				label: "Selection context",
+				description: "Attach current IDE selection to the next eligible prompt"
+			}),
+			selectedTextLineLimit: field.number(DEFAULT_SELECTED_TEXT_LINE_LIMIT, {
+				label: "Selection text lines",
+				description: "Maximum selected text lines shown in model context; 0 disables selected text",
+				values: SELECTED_TEXT_LINE_LIMITS,
+				valueDescriptions: {
+					0: "Do not include selected text",
+					3: "Include up to 3 lines",
+					5: "Include up to 5 lines",
+					9: "Include up to 9 lines"
+				}
+			}),
+			displaySelectionMessages: field.boolean(false, {
+				label: "Display context messages",
+				description: "Show injected IDE context messages in the transcript"
+			}),
+			debugNotifications: field.boolean(false, {
+				label: "Debug raw IDE notifications",
+				description: "Show incoming IDE notifications as JSON in the transcript"
+			})
 		}
-
-		const result = v.safeParse(ConfigSchema, parsed)
-		if (!result.success) return
-		const config = result.output
-		if (config.autoConnectOnStartup !== undefined) this.autoConnectOnStartup = config.autoConnectOnStartup
-		if (config.autoReconnect !== undefined) this.autoReconnect = config.autoReconnect
-		if (config.selectionContext !== undefined) this.selectionContext = config.selectionContext
-		if (config.selectedTextLineLimit !== undefined) this.selectedTextLineLimit = config.selectedTextLineLimit
-		if (config.displaySelectionMessages !== undefined) this.displaySelectionMessages = config.displaySelectionMessages
-		if (config.debugNotifications !== undefined) this.debugNotifications = config.debugNotifications
-	}
-
-	async save(): Promise<void> {
-		if (!this.#projectDir) return
-		await mkdir(join(this.#projectDir, ".pi"), { recursive: true })
-		await writeFile(
-			this.path(),
-			`${JSON.stringify(
-				{
-					autoConnectOnStartup: this.autoConnectOnStartup,
-					autoReconnect: this.autoReconnect,
-					selectionContext: this.selectionContext,
-					selectedTextLineLimit: this.selectedTextLineLimit,
-					displaySelectionMessages: this.displaySelectionMessages,
-					debugNotifications: this.debugNotifications
-				},
-				null,
-				"\t"
-			)}\n`,
-			"utf8"
-		)
-	}
-
-	private path(): string {
-		if (!this.#projectDir) throw new Error("Config project dir unset")
-		return join(this.#projectDir, ".pi", CONFIG_FILE)
-	}
+	})
 }
+
+export type ConfigState = ReturnType<typeof createConfigState>

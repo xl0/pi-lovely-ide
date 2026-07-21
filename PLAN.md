@@ -15,7 +15,8 @@ current behavior is recorded in `CODE.md`.
       publishing from text-editor selection events only, `Pi: Mention Selection`,
       notebook cell-relative spans, QuickPick targeting, debug log channel.
 - [x] Pi extension on native protocol: discovery/reconnect, footer status, `/ide` UI,
-      ambient selection context, mention context, `session_info_changed`.
+      scoped User/Workspace settings, ambient selection context, mention context,
+      `session_info_changed`.
 - [x] IDE Problems: explicit attach commands (selection/file/workspace) with markers,
       LSP half-open ranges preserved, notebook cell id/index, bounded selected-code
       excerpts, empty-attachment notifications, one global model-context cap across
