@@ -57,6 +57,20 @@
   ```
   Bump + publish in one step: `bun run release patch|minor|major`.
 
+- [ ] Publish to Open VSX (VSCodium, Theia, Gitpod, VS Code forks)  
+  One-time setup, all interactive:
+  - Sign in at https://open-vsx.org with GitHub and sign the Eclipse Publisher Agreement.
+  - Create a token at https://open-vsx.org/user-settings/tokens, add it to
+    `ide-plugins/vscode/.env` as `OVSX_PAT`.
+  - `bun run ovsx create-namespace xl0` (namespace must match `publisher`; it does not
+    exist yet). Creating it does not reserve it — claim ownership separately through
+    https://github.com/eclipse/openvsx/wiki/Namespace-Access.
+
+  Then, per release:
+  ```bash
+  bun run release:openvsx
+  ```
+
 - [ ] Verify listing  
   - Check Marketplace page
   - Install by ID: `xl0.pi-lovely-ide`
