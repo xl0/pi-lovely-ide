@@ -56,7 +56,8 @@
 		"compile": "bun run typecheck && node esbuild.mjs",
 		"watch": "node esbuild.mjs --watch",
 		"vscode:prepublish": "bun run typecheck && node esbuild.mjs --production",
-		"package": "vsce package"
+		"package": "vsce package",
+		"release": "vsce publish"
 	},
 	"devDependencies": {
 		"@types/node": "^20.0.0",

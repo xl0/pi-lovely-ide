@@ -227,7 +227,10 @@ Debug notifications:
 - Uses `ws`, Valibot, and shared protocol module.
 - `tsc --noEmit` type-checks.
 - `esbuild.mjs` bundles/minifies CommonJS output to `dist/extension.cjs`.
-- `.vscodeignore` excludes source/config/deps/lockfiles/maps for VSIX packaging.
+- `.vscodeignore` excludes source/config/deps/lockfiles/maps/dev docs for VSIX packaging.
+- `bun run release` publishes to the Marketplace. It must run through Bun: the PAT lives in
+  git-ignored `ide-plugins/vscode/.env` as `VSCE_PAT`, which only Bun's runtime auto-loads.
+  Under `npx`/`bunx`, `vsce` instead uses its keyring-stored PAT without checking expiry.
 - Root `dev-install-vscode-plugin.sh [ide-cli]` installs deps, removes stale VSIX artifacts,
   packages the current plugin version, and installs through `code` by default or another
   CLI such as `cursor`.

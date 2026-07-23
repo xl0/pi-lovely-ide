@@ -45,24 +45,17 @@
   ```
   Result -> `*.vsix`
 
-- [x] Login `vsce` once  
-  From `ide-plugins/vscode`:
-  ```bash
-  npx vsce login xl0
-  ```
-  Paste PAT.
+- [x] Authenticate  
+  PAT lives in `ide-plugins/vscode/.env` as `VSCE_PAT` (git-ignored). Bun loads that file
+  automatically, so it only reaches `vsce` when `vsce` is started through `bun run` —
+  `bunx`/`npx vsce` run the node shebang directly and never see it.
 
 - [ ] Publish  
-  If publishing current version from `package.json`:
+  From `ide-plugins/vscode`, publishing the current `package.json` version:
   ```bash
-  npx vsce publish
+  bun run release
   ```
-  Or bump + publish in one step:
-  ```bash
-  npx vsce publish patch
-  npx vsce publish minor
-  npx vsce publish major
-  ```
+  Bump + publish in one step: `bun run release patch|minor|major`.
 
 - [ ] Verify listing  
   - Check Marketplace page
@@ -74,6 +67,8 @@
   - `publisher` must exactly match Marketplace publisher.
   - `engines.vscode` must be valid for target users.
   - `.vscodeignore` controls packaged files. Yours looks sane.
+  - Without `VSCE_PAT`, `vsce` silently falls back to the PAT stored in the OS keyring by
+    `vsce login` and never checks its expiry, so a stale token fails at upload time.
   - Since `main` points to `dist/extension.cjs`, publish depends on prepublish build succeeding.
 
 - [ ] Recommended first-pass polish before publish  
