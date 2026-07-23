@@ -26,7 +26,7 @@
 
 - [ ] Check manifest quality  
   Before first publish, worth adding:
-  - `icon`
+  - [x] `icon` (`assets/icon.png`, rendered from `assets/logo.svg`)
   - `galleryBanner`
   - `homepage`
   - `bugs`
@@ -77,7 +77,7 @@
   - Since `main` points to `dist/extension.cjs`, publish depends on prepublish build succeeding.
 
 - [ ] Recommended first-pass polish before publish  
-  - add icon file + `icon` field
+  - [x] add icon file + `icon` field
   - expand `README.md` with install/setup/use
   - add `keywords`
   - maybe add `pricing: "Free"` and `license` already OK

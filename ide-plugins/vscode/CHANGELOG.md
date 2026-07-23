@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Adds Marketplace icon.
+
 ## 0.1.2
 
 - Adds explicit active-file and workspace Problems attachments.

@@ -30,6 +30,12 @@ current behavior is recorded in `CODE.md`.
 - [ ] Connect, footer status, ambient selection context, mention command, multi-selection,
       multiple Pi sessions target picker, stale lock cleanup.
 
+## Marketing assets
+
+- [ ] Record a better demo video, then advertise it to the pi.dev package gallery through
+      `pi.video` in `package.json` (mp4, must be served with `video/mp4` — raw GitHub URLs
+      are `application/octet-stream`, jsDelivr works). Current `demo.mp4` is not good enough.
+
 ## Notebook follow-ups still open
 
 - [ ] Notebook execution protocol namespace (`notebook/*`) and whether it belongs in v2 or separate doc.

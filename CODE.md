@@ -221,6 +221,9 @@ Debug notifications:
 - Default keybindings when editor text or notebook editor is focused:
   - `Alt+Shift+L`: mention selection.
   - `Alt+Shift+D`: attach Problems.
+- Marketplace icon `assets/icon.png` (256px) is rendered from `assets/logo.svg`
+  (official Pi mark with its "i" block replaced by a heart) via
+  `inkscape -w 256 -h 256 assets/logo.svg -o assets/icon.png`.
 - Uses `ws`, Valibot, and shared protocol module.
 - `tsc --noEmit` type-checks.
 - `esbuild.mjs` bundles/minifies CommonJS output to `dist/extension.cjs`.
