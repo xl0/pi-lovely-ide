@@ -119,8 +119,8 @@ Mention events:
 - Remember referenced snapshot so next eligible prompt can receive rich IDE context.
 - References support files, ranges, cursors, whole notebook cells, and notebook cell ranges:
   `@file`, `@file#line:char-line:char`,
-  `@file[cell id|1-based-index]`, and
-  `@file[cell id|1-based-index]#line:char-line:char`.
+  `@file[cell id|zero-based-index]`, and
+  `@file[cell id|zero-based-index]#line:char-line:char`.
 
 Problems attachments:
 
@@ -138,7 +138,8 @@ Problems attachments:
   notification and sends nothing.
 - Multiple selection line ranges are sent in document order for deterministic markers.
 - Notebook Problems markers, metadata, and rendered diagnostic locations include cell id/index;
-  selected and diagnostic lines are cell-relative.
+  cell indices are zero-based, while selected and diagnostic lines are cell-relative and
+  rendered 1-based.
 - Without a selection the command captures all active-document diagnostics.
 - A separate workspace command captures cached diagnostics for workspace documents.
 - Diagnostic ranges preserve zero-based LSP half-open semantics on the wire and render as

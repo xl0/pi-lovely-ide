@@ -143,7 +143,7 @@ export function formatSnapshotReference(
 ): string {
 	let ref = `${options.prefix ?? ""}${displayPath(snapshot.filePath)}`
 	if (snapshot.cell?.id !== undefined) ref += `[cell ${snapshot.cell.id}]`
-	else if (snapshot.cell?.index !== undefined) ref += `[cell ${snapshot.cell.index + 1}]`
+	else if (snapshot.cell?.index !== undefined) ref += `[cell ${snapshot.cell.index}]`
 	else if (snapshot.cell) ref += "[cell]"
 	if (!snapshot.range) return ref
 	if (snapshot.range.isCursor && options.collapseCursor) return `${ref}#${snapshot.range.lineStart}:${snapshot.range.characterStart}`
@@ -161,7 +161,7 @@ export function formatSnapshotContext(
 	const file = displayPath(snapshot.filePath)
 	let attributes = `file="${file}"`
 	if (snapshot.cell?.id !== undefined) attributes += ` cellId="${snapshot.cell.id}"`
-	if (snapshot.cell?.index !== undefined) attributes += ` cellIndex="${snapshot.cell.index + 1}"`
+	if (snapshot.cell?.index !== undefined) attributes += ` cellIndex="${snapshot.cell.index}"`
 	attributes += extraAttributes
 	if (!snapshot.range) {
 		const text = snapshot.text ? formatSelectedText(snapshot.text, snapshot.text.totalLines ?? 1, selectedTextLineLimit) : undefined

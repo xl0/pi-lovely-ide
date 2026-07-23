@@ -35,7 +35,7 @@ function formatLineRanges(ranges: { start: number; end: number }[]): string {
 
 function formatCell(cell: DiagnosticsSnapshot["cell"]): string {
 	if (cell?.id !== undefined) return `[cell ${cell.id}]`
-	if (cell?.index !== undefined) return `[cell ${cell.index + 1}]`
+	if (cell?.index !== undefined) return `[cell ${cell.index}]`
 	return ""
 }
 
@@ -107,7 +107,7 @@ export function formatDiagnosticsContext(snapshots: DiagnosticsSnapshot[], selec
 		.map(snapshot => {
 			const lines = snapshot.lineRanges?.length ? ` lines="${formatLineRanges(snapshot.lineRanges)}"` : ""
 			const cellId = snapshot.cell?.id !== undefined ? ` cellId="${snapshot.cell.id}"` : ""
-			const cellIndex = snapshot.cell?.index !== undefined ? ` cellIndex="${snapshot.cell.index + 1}"` : ""
+			const cellIndex = snapshot.cell?.index !== undefined ? ` cellIndex="${snapshot.cell.index}"` : ""
 			const code = formatSelectedCode(snapshot, selectedTextLineLimit)
 			const body = code ? `${code}\n\n${snapshot.text}` : snapshot.text
 			return `<problems ref="${snapshot.ref}" scope="${snapshot.scope}"${cellId}${cellIndex}${lines}>\n${body}\n</problems>`

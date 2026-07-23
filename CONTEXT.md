@@ -17,7 +17,7 @@ Transient model context built from a Selection Snapshot for an initial idle user
 _Avoid_: message history, at mention, live IDE state
 
 **At Mention**:
-An explicit IDE-originated file/range/cell reference inserted into the user's editor message; wire payload uses zero-based line/character range and may include referenced text, while inserted editor text is 1-based.
+An explicit IDE-originated file/range/cell reference inserted into the user's editor message; wire payload uses zero-based line/character ranges and may include referenced text. Inserted line/character references are 1-based; notebook cell indices remain zero-based.
 _Avoid_: selection context, ambient context
 
 **Problems Attachment**:

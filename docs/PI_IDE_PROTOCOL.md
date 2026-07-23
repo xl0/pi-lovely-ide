@@ -352,7 +352,7 @@ Explicit user action from the IDE to insert/send a file/range reference to one P
 }
 ```
 
-Pi may render mention text as a human 1-based line reference, e.g. `@src/app.ts#11-13`; whole file as `@src/app.ts`; notebook spans with a cell selector before the optional cell-relative range, e.g. `@analysis.ipynb[cell abc123]#2:1-3:5` or `@analysis.ipynb[cell 4]`.
+Pi may render mention text as a human 1-based line reference, e.g. `@src/app.ts#11-13`; whole file as `@src/app.ts`; notebook spans with a zero-based cell index or cell id before the optional cell-relative range, e.g. `@analysis.ipynb[cell abc123]#2:1-3:5` or `@analysis.ipynb[cell 0]`.
 
 ## Diagnostics event
 
