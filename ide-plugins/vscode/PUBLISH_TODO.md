@@ -46,9 +46,11 @@
   Result -> `*.vsix`
 
 - [x] Authenticate  
-  PAT lives in `ide-plugins/vscode/.env` as `VSCE_PAT` (git-ignored). Bun loads that file
-  automatically, so it only reaches `vsce` when `vsce` is started through `bun run` —
-  `bunx`/`npx vsce` run the node shebang directly and never see it.
+  Tokens live in git-ignored `ide-plugins/vscode/.env` as `VSCE_PAT`/`OVSX_PAT`. The
+  `release*` scripts source that file themselves. Bun's own `.env` loading does not help
+  here: it populates `process.env` for code Bun runs, but `bun run <script>` does not pass
+  those values to a spawned binary like `vsce`/`ovsx`. For ad-hoc CLI calls use
+  `bun run --env-file=.env ovsx <command>`, which does propagate.
 
 - [ ] Publish  
   From `ide-plugins/vscode`, publishing the current `package.json` version:
@@ -58,15 +60,18 @@
   Bump + publish in one step: `bun run release patch|minor|major`.
 
 - [ ] Publish to Open VSX (VSCodium, Theia, Gitpod, VS Code forks)  
-  One-time setup, all interactive:
-  - Sign in at https://open-vsx.org with GitHub and sign the Eclipse Publisher Agreement.
-  - Create a token at https://open-vsx.org/user-settings/tokens, add it to
-    `ide-plugins/vscode/.env` as `OVSX_PAT`.
-  - `bun run ovsx create-namespace xl0` (namespace must match `publisher`; it does not
-    exist yet). Creating it does not reserve it — claim ownership separately through
-    https://github.com/eclipse/openvsx/wiki/Namespace-Access.
+  Done: `OVSX_PAT` in `.env`, namespace `xl0` created, 0.1.3 uploaded.
 
-  Then, per release:
+  Still blocked: uploads stay **inactive and invisible** until the publisher signs the
+  Eclipse Publisher Agreement. Needs an eclipse.org account whose _GitHub Username_ field
+  matches the GitHub account used on open-vsx.org, then
+  https://open-vsx.org/user-settings/profile → _Log in with Eclipse_ →
+  _Show Publisher Agreement_ → _Agree_. Already-published versions activate afterwards.
+
+  Namespace `xl0` is `access: restricted` but `verified: false`; verification is a separate
+  request, see https://github.com/eclipse/openvsx/wiki/Namespace-Access.
+
+  Per release:
   ```bash
   bun run release:openvsx
   ```

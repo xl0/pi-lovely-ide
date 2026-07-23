@@ -57,8 +57,8 @@
 		"watch": "node esbuild.mjs --watch",
 		"vscode:prepublish": "bun run typecheck && node esbuild.mjs --production",
 		"package": "vsce package",
-		"release": "vsce publish",
-		"release:openvsx": "ovsx publish"
+		"release": "set -a && . ./.env && set +a && vsce publish",
+		"release:openvsx": "set -a && . ./.env && set +a && ovsx publish"
 	},
 	"devDependencies": {
 		"@types/node": "^20.0.0",
