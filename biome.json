@@ -1,7 +1,7 @@
 {
 	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
 	"files": {
-		"includes": ["**", "!**/*.ipynb", "!node_modules", "!.git", "!bun.lock", "!.pi/*", "!ide-plugins/vscode/dist"]
+		"includes": ["**", "!**/*.ipynb", "!node_modules", "!.git", "!bun.lock", "!.pi/*", "!.claude/sandbox", "!ide-plugins/vscode/dist"]
 	},
 	"formatter": {
 		"enabled": true,

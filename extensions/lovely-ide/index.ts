@@ -432,6 +432,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		const contextMessages = injectIdeContexts(
 			displayMessages,
 			config.value.selectionContext,
+			config.value.keepPastSelectionContext,
 			displayPath,
 			config.value.selectedTextLineLimit
 		)

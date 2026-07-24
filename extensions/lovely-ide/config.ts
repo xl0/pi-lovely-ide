@@ -17,6 +17,10 @@ export function createConfigState() {
 				label: "Selection context",
 				description: "Attach current IDE selection to the next eligible prompt"
 			}),
+			keepPastSelectionContext: field.boolean(true, {
+				label: "Keep past selection context",
+				description: "Keep cache prefixes stable; discarded context makes stale selections less confusing"
+			}),
 			selectedTextLineLimit: field.number(DEFAULT_SELECTED_TEXT_LINE_LIMIT, {
 				label: "Selection text lines",
 				description: "Maximum selected text lines shown in model context; 0 disables selected text",

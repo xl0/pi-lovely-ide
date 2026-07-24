@@ -26,8 +26,8 @@ The integration has two halves:
 - **Notebook support** — selections, mentions, and Problems in notebook cells carry the cell
   id/index and cell-relative line numbers.
 - **`/ide`** — selector and live preview: pick an IDE endpoint or open scoped settings for
-  auto-connect, auto-reconnect, selection context, context-message display, debug logging
-  of raw IDE events, and the selected-text line budget.
+  auto-connect, auto-reconnect, selection context/history, context-message display, debug
+  logging of raw IDE events, and the selected-text line budget.
 
 ## Setup
 
@@ -96,6 +96,11 @@ Context is injected as `<selection>`, `<mention>`, and `<problems>` blocks appen
 message, and the bookkeeping markers are stripped from what the model sees. Aggregate
 Problems context is capped at Pi's standard output limit; when it overflows, the full text
 is written to a private temp file and the model gets the path.
+
+By default, ambient selection context remains on earlier messages, keeping prompt-cache
+prefixes stable at the cost of retaining those input tokens. Disable **Keep past selection
+context** in `/ide` settings to keep only the latest available ambient selection block;
+that block remains until a newer selection replaces it.
 
 ## Protocol docs
 

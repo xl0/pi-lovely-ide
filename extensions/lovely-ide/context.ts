@@ -51,6 +51,7 @@ export function formatIdeContextDetails(
 export function injectIdeContexts(
 	messages: ContextEvent["messages"],
 	selectionContextEnabled: boolean,
+	keepPastSelectionContext: boolean,
 	displayPath: (path: string) => string,
 	selectedTextLineLimit: SelectedTextLineLimit
 ): ContextEvent["messages"] | undefined {
@@ -88,7 +89,8 @@ export function injectIdeContexts(
 						diagnosticsTargetIndex = j
 					}
 					const hasExplicitSelection = mentions.length > 0 || diagnostics.some(snapshot => snapshot.scope === "selection")
-					if (!hasExplicitSelection && selectionContextEnabled && i === lastSelectionMarkerIndex && details.selection) {
+					const shouldInjectSelection = keepPastSelectionContext || i === lastSelectionMarkerIndex
+					if (!hasExplicitSelection && selectionContextEnabled && shouldInjectSelection && details.selection) {
 						content = appendContextToContent(content, formatSelectionContext(details.selection, displayPath, selectedTextLineLimit))
 					}
 					if (content !== target.content) patched[j] = { ...target, content }

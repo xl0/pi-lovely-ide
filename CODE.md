@@ -168,6 +168,9 @@ Prompt/context flow:
   selection is skipped for that message.
 - Otherwise latest ambient selection is appended as `<selection ...>...</selection>`,
   self-closed `<selection ... />`, or `<cursor ... />`.
+- `keepPastSelectionContext` optionally preserves ambient selection blocks on their original
+  user messages for prompt-cache stability and defaults to enabled. Disabling it keeps only
+  the latest block to avoid confusing the model with stale selections.
 - Steer/follow-up prompts keep only plain pasted references; no rich IDE context.
 
 Selected text rendering:
@@ -192,8 +195,8 @@ Footer status key is `lovely-ide`.
 - Preview refreshes while open as native IDE selection events arrive.
 - Lists discovered IDE endpoints.
 - Settings opens Pi Lovely Config's scoped editor for auto-connect, auto-reconnect,
-  selection context, context-message display, raw-notification debug, and selected-text
-  line limit.
+  selection context/history, context-message display, raw-notification debug, and
+  selected-text line limit.
 - User config is `~/.pi/agent/xl0-lovely-ide.json`; Workspace config is
   `<cwd>/.pi/xl0-lovely-ide.json`. Workspace values override User values, and the old
   workspace-only file maps directly to the Workspace scope.
