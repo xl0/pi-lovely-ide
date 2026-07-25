@@ -4,7 +4,7 @@ import { createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type ContextEvent, type ExtensionAPI, type ExtensionContext, getAgentDir, highlightCode } from "@earendil-works/pi-coding-agent"
-import { Text } from "@earendil-works/pi-tui"
+import { Box, Text } from "@earendil-works/pi-tui"
 import * as v from "valibot"
 import {
 	type HelloParams,
@@ -176,20 +176,27 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		for (const view of debugNotificationViews) view.setText("")
 	}
 
-	pi.registerMessageRenderer<DebugNotificationDetails>(DEBUG_NOTIFICATION_CUSTOM_TYPE, message => {
+	pi.registerMessageRenderer<DebugNotificationDetails>(DEBUG_NOTIFICATION_CUSTOM_TYPE, (message, options, theme) => {
 		const details = validateDebugNotificationDetails(message.details)
 		if (!details || !config.value.debugNotifications) return new Text("", 0, 0)
 		const suffix = details.truncated ? `\n… (${details.originalLength} chars)` : ""
-		const view = new Text(`IDE raw ${details.method}:\n${highlightCode(details.pretty, "json").join("\n")}${suffix}`, 1, 0)
+		const outputPad = (options as typeof options & { outputPad?: number }).outputPad
+		const view = new Text(`IDE raw ${details.method}:\n${highlightCode(details.pretty, "json").join("\n")}${suffix}`, 0, 0)
+		const box = new Box(outputPad, 0, text => theme.bg("customMessageBg", text))
+		box.addChild(view)
 		debugNotificationViews.add(view)
-		return view
+		return box
 	})
 
-	pi.registerMessageRenderer<IdeContextDetails>(IDE_CONTEXT_CUSTOM_TYPE, message => {
+	pi.registerMessageRenderer<IdeContextDetails>(IDE_CONTEXT_CUSTOM_TYPE, (message, options, theme) => {
 		const details = validateIdeContextDetails(message.details)
 		if (!details) return undefined
 		const text = formatIdeContextDetails(details, displayPath, config.value.selectedTextLineLimit)
-		return text ? new Text(text, 1, 0) : undefined
+		const outputPad = (options as typeof options & { outputPad?: number }).outputPad
+		if (!text) return undefined
+		const box = new Box(outputPad, 0, value => theme.bg("customMessageBg", value))
+		box.addChild(new Text(text, 0, 0))
+		return box
 	})
 
 	function updateStatus(): void {

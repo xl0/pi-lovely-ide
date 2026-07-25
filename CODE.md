@@ -157,6 +157,9 @@ Prompt/context flow:
   pasted IDE mentions, Problems attachments, and/or pending ambient selection.
 - Context marker content is empty; structured data lives in `details`.
 - Marker display is controlled by `displaySelectionMessages`.
+- Displayed context and debug messages use the active theme's custom-message background
+  and follow Pi's `outputPad` setting when supported by the host; older hosts retain
+  their default one-column padding.
 - If ambient selection will be injected and no valid mention or selection-scoped Problems
   attachment takes precedence,
   `before_agent_start` adds one system-prompt guideline telling model that
