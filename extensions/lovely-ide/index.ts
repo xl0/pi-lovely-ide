@@ -8,7 +8,6 @@ import { Box, Text } from "@earendil-works/pi-tui"
 import * as v from "valibot"
 import {
 	type HelloParams,
-	type IdeLockFile,
 	type JsonRpcMessage,
 	PI_IDE_PROTOCOL_VERSION,
 	parseIdeJsonRpcMessage,
@@ -16,7 +15,8 @@ import {
 } from "../../packages/protocol/src/index.js"
 import { registerIdeCommand } from "./command.js"
 import { createConfigState } from "./config.js"
-import { IdeConnection } from "./connection.js"
+import type { IdeConnection } from "./connection.js"
+import { type DiscoveredIde, IdeConnections } from "./connections.js"
 import {
 	formatIdeContextDetails,
 	IDE_CONTEXT_CUSTOM_TYPE,
@@ -26,7 +26,7 @@ import {
 } from "./context.js"
 import { type DiagnosticsSnapshot, diagnosticsSnapshotFromEvent } from "./diagnostics.js"
 import { formatAtMention, type MentionSnapshot, mentionSnapshotFromEvent, snapshotsReferencedInPrompt } from "./mention.js"
-import { displayPathForCwd, type SelectionSnapshot, SelectionState } from "./selection.js"
+import { displayPathForCwd, type SelectionSnapshot } from "./selection.js"
 
 const require = createRequire(import.meta.url)
 const packageJson = require("../../package.json") as { version?: string }
@@ -37,13 +37,7 @@ const STATUS_KEY = "lovely-ide"
 const DEBUG_NOTIFICATION_CUSTOM_TYPE = "lovely-ide.debugNotification"
 const SELECTION_PROMPT_GUIDELINE =
 	"The <selection>/<cursor> blocks refer to the user's selection in the IDE. They may or may not be relevant to your task. Silently ignore them when unrelated."
-const RECONNECT_DELAY_MS = 1_000
 const DEBUG_NOTIFICATION_MAX_CHARS = 4_000
-
-interface DiscoveredIde {
-	port: number
-	lock: IdeLockFile
-}
 
 const DebugNotificationDetailsSchema = v.looseObject({
 	method: v.string(),
@@ -55,12 +49,6 @@ type DebugNotificationDetails = v.InferOutput<typeof DebugNotificationDetailsSch
 
 export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	let currentCtx: ExtensionContext | null = null
-	let connection: IdeConnection | null = null
-	let connected: DiscoveredIde | null = null
-	let nextRequestId = 1
-	let connecting = false
-	let connectingConnection: IdeConnection | null = null
-	let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 	let pendingSelection: SelectionSnapshot | null | undefined
 	let pendingMentions: MentionSnapshot[] = []
 	let pendingPromptMentions: MentionSnapshot[] = []
@@ -70,7 +58,23 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	const debugNotificationViews = new Set<Text>()
 
 	const config = createConfigState()
-	const selection = new SelectionState(displayPath)
+	const connections = new IdeConnections({
+		discover: () => {
+			const ctx = activeCtx()
+			return ctx ? discoverMatchingIdes(ctx.cwd) : Promise.resolve([])
+		},
+		hello: () => {
+			const ctx = activeCtx()
+			return ctx ? helloParams(ctx) : null
+		},
+		autoReconnect: () => config.value.autoReconnect,
+		displayPath,
+		onMessage: handleMessage,
+		onChange: () => {
+			updateStatus()
+			selectionPreviewRefresh?.()
+		}
+	})
 
 	function isPidAlive(pid: number | undefined): boolean {
 		if (!pid || !Number.isInteger(pid)) return false
@@ -159,7 +163,20 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	}
 
 	function displayPath(path: string): string {
-		return displayPathForCwd(currentCtx?.cwd, path)
+		return displayPathForCwd(activeCtx()?.cwd, path)
+	}
+
+	// Async sockets/timers can outlive the session context that Pi invalidated on replacement.
+	function activeCtx(): ExtensionContext | null {
+		if (!currentCtx) return null
+		try {
+			void currentCtx.cwd
+			return currentCtx
+		} catch {
+			currentCtx = null
+			connections.stop()
+			return null
+		}
 	}
 
 	function stripDebugNotificationMessages(messages: ContextEvent["messages"]): ContextEvent["messages"] {
@@ -200,21 +217,28 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	})
 
 	function updateStatus(): void {
-		if (!currentCtx) return
-		const th = currentCtx.ui.theme
-		if (!connected) {
+		const ctx = activeCtx()
+		if (!ctx) return
+		const th = ctx.ui.theme
+		const connected = connections.connected
+		if (!connected.length) {
 			if (!config.value.autoConnectOnStartup && !config.value.autoReconnect) {
-				currentCtx.ui.setStatus(STATUS_KEY, th.fg("muted", "○ IDE disabled"))
+				ctx.ui.setStatus(STATUS_KEY, th.fg("muted", "○ IDE disabled"))
 			} else {
-				currentCtx.ui.setStatus(STATUS_KEY, th.fg("error", "○ IDE disconnected"))
+				ctx.ui.setStatus(STATUS_KEY, th.fg("error", "○ IDE disconnected"))
 			}
 			return
 		}
 
-		const ide = connected.lock.ide ?? "IDE"
-		const pid = connected.lock.pid ?? "?"
-		const selectionText = selection.describeCurrent()
-		currentCtx.ui.setStatus(STATUS_KEY, `${th.fg("success", "● IDE")} ${ide} ${pid}${selectionText ? ` ${selectionText}` : ""}`)
+		const names = connected.map(ide => {
+			const label = ide.lock.ide ?? "IDE"
+			return ide === connections.active ? th.bg("selectedBg", th.fg("accent", th.bold(`[${label}]`))) : th.fg("dim", label)
+		})
+		const selectionText = connections.selection?.describeCurrent()
+		ctx.ui.setStatus(
+			STATUS_KEY,
+			`${th.fg("success", "● IDE")} ${names.join(th.fg("dim", " · "))}${selectionText ? ` → ${selectionText}` : ""}`
+		)
 	}
 
 	function debugNotifyRawIdeNotification(message: JsonRpcMessage): void {
@@ -238,7 +262,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	}
 
 	function handleMessage(message: JsonRpcMessage, _raw: string, activeConnection: IdeConnection): void {
-		if (!currentCtx || activeConnection !== connection) return
+		const ctx = activeCtx()
+		if (!ctx || !connections.has(activeConnection)) return
 		debugNotifyRawIdeNotification(message)
 		const parsed = parseIdeJsonRpcMessage(message)
 		if (message.id != null && message.method != null) {
@@ -253,9 +278,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		if (parsed.kind !== "event") return
 
 		if (parsed.params.type === "selection") {
-			selection.setCurrent(parsed.params)
-			updateStatus()
-			selectionPreviewRefresh?.()
+			connections.select(activeConnection, parsed.params)
 			return
 		}
 
@@ -264,7 +287,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 			const mention = mentionSnapshot?.ref ?? formatAtMention(parsed.params, displayPath)
 			if (!mention) return
 			if (mentionSnapshot) pendingMentions.push(mentionSnapshot)
-			currentCtx.ui.pasteToEditor(`${mention} `)
+			ctx.ui.pasteToEditor(`${mention} `)
 			updateStatus()
 			return
 		}
@@ -272,117 +295,21 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		if (parsed.params.type === "diagnostics") {
 			const snapshot = diagnosticsSnapshotFromEvent(parsed.params, displayPath)
 			pendingDiagnostics = [...pendingDiagnostics.filter(pending => pending.ref !== snapshot.ref), snapshot]
-			currentCtx.ui.pasteToEditor(`${snapshot.ref} `)
+			ctx.ui.pasteToEditor(`${snapshot.ref} `)
 			updateStatus()
 		}
-	}
-
-	function clearReconnectTimer(): void {
-		if (reconnectTimer) {
-			clearTimeout(reconnectTimer)
-			reconnectTimer = undefined
-		}
-	}
-
-	function scheduleReconnect(): void {
-		if (!config.value.autoReconnect || reconnectTimer || !currentCtx) return
-		reconnectTimer = setTimeout(() => {
-			reconnectTimer = undefined
-			if (!config.value.autoReconnect || !currentCtx || connection || connecting) return
-			void reconnectMatching(currentCtx)
-		}, RECONNECT_DELAY_MS)
-	}
-
-	async function connectToIde(ide: DiscoveredIde): Promise<void> {
-		if (connecting || !currentCtx) return
-		connecting = true
-		const newConnection = new IdeConnection({
-			port: ide.port,
-			token: ide.lock.token,
-			requestId: nextRequestId++,
-			hello: helloParams(currentCtx),
-			onMessage: handleMessage,
-			onClose(closedConnection) {
-				if (connection === closedConnection) {
-					connection = null
-					connected = null
-					selection.clearCurrent()
-					updateStatus()
-					scheduleReconnect()
-				}
-			}
-		})
-		connectingConnection = newConnection
-
-		try {
-			await newConnection.connect()
-			if (connectingConnection !== newConnection) {
-				newConnection.close()
-				return
-			}
-
-			clearReconnectTimer()
-			connection = newConnection
-			connected = ide
-			selection.clearCurrent()
-			updateStatus()
-		} finally {
-			connecting = false
-			if (connectingConnection === newConnection) connectingConnection = null
-		}
-	}
-
-	async function reconnectMatching(ctx: ExtensionContext): Promise<void> {
-		if (connection || connecting) return
-		const ides = await discoverMatchingIdes(ctx.cwd)
-		for (const ide of ides) {
-			try {
-				await connectToIde(ide)
-				return
-			} catch {
-				// Try next matching IDE endpoint.
-			}
-		}
-		updateStatus()
-		scheduleReconnect()
-	}
-
-	async function connectOnStartup(ctx: ExtensionContext): Promise<void> {
-		currentCtx = ctx
-		disconnect()
-		updateStatus()
-		await reconnectMatching(ctx)
-	}
-
-	async function connectFromCommand(ide: DiscoveredIde): Promise<void> {
-		if (connecting) throw new Error("IDE connection already in progress")
-		disconnect()
-		await connectToIde(ide)
-	}
-
-	function disconnect(): void {
-		clearReconnectTimer()
-		const activeConnection = connection
-		const pendingConnection = connectingConnection
-		connection = null
-		connected = null
-		selection.clearCurrent()
-		if (activeConnection) activeConnection.close()
-		if (pendingConnection) pendingConnection.close()
-		connecting = false
-		connectingConnection = null
-		updateStatus()
 	}
 
 	registerIdeCommand(pi, {
 		config,
 		discoverMatchingIdes,
-		connected: () => connected,
-		connect: connectFromCommand,
-		disconnect,
+		connected: () => connections.connected,
+		active: () => connections.active,
+		connect: ide => connections.connect(ide),
+		disconnect: ide => connections.disconnect(ide),
 		updateStatus,
-		scheduleReconnect,
-		selectionSnapshot: () => selection.snapshotCurrent(),
+		scheduleReconnect: () => connections.scheduleReconnect(),
+		selectionSnapshot: () => connections.selection?.snapshotCurrent() ?? null,
 		setSelectionPreviewRefresh: refresh => {
 			selectionPreviewRefresh = refresh
 		},
@@ -401,7 +328,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 			pendingDiagnostics = []
 		}
 		if (config.value.selectionContext && capturePromptContext) {
-			pendingSelection = selection.snapshotCurrent()
+			pendingSelection = connections.selection?.snapshotCurrent() ?? null
 		} else {
 			pendingSelection = undefined
 		}
@@ -452,21 +379,22 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 	})
 
 	pi.on("session_start", async (_event, ctx) => {
+		connections.stop()
 		currentCtx = ctx
 		config.load(ctx.cwd)
 		if (config.warnings.length > 0) {
 			ctx.ui.notify(config.warnings.map(warning => `${warning.path}: ${warning.message}`).join("\n"), "warning")
 		}
 		updateStatus()
-		if (config.value.autoConnectOnStartup) await connectOnStartup(ctx)
+		if (config.value.autoConnectOnStartup) await connections.start()
 	})
 
 	pi.on("session_info_changed", event => {
-		connection?.send({ jsonrpc: "2.0", method: "session_info_changed", params: event.name ? { name: event.name } : {} })
+		connections.send({ jsonrpc: "2.0", method: "session_info_changed", params: event.name ? { name: event.name } : {} })
 	})
 
 	pi.on("session_shutdown", () => {
-		currentCtx?.ui.setStatus(STATUS_KEY, undefined)
+		activeCtx()?.ui.setStatus(STATUS_KEY, undefined)
 		currentCtx = null
 		pendingSelection = undefined
 		pendingMentions = []
@@ -475,6 +403,6 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		pendingPromptDiagnostics = []
 		selectionPreviewRefresh = null
 		debugNotificationViews.clear()
-		disconnect()
+		connections.stop()
 	})
 }

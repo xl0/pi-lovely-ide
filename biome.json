@@ -1,7 +1,23 @@
 {
 	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
 	"files": {
-		"includes": ["**", "!**/*.ipynb", "!node_modules", "!.git", "!bun.lock", "!.pi/*", "!.claude/sandbox", "!ide-plugins/vscode/dist"]
+		"includes": [
+			"*.json",
+			".vscode/*.json",
+			"extensions/**/*.ts",
+			"packages/*/src/**/*.ts",
+			"packages/*/*.json",
+			"ide-plugins/*/src/**/*.ts",
+			"ide-plugins/*/test/**/*.ts",
+			"ide-plugins/*/*.json",
+			"ide-plugins/*/*.mjs",
+			"tests/**/*.ts"
+		]
 	},
 	"formatter": {
 		"enabled": true,

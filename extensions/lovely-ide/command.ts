@@ -16,9 +16,10 @@ export interface CommandIde {
 interface IdeCommandDeps<TIde extends CommandIde> {
 	config: ConfigState
 	discoverMatchingIdes(cwd: string): Promise<TIde[]>
-	connected(): TIde | null
+	connected(): TIde[]
+	active(): TIde | undefined
 	connect(ide: TIde): Promise<void>
-	disconnect(): void
+	disconnect(ide?: TIde): void
 	updateStatus(): void
 	scheduleReconnect(): void
 	selectionSnapshot(): SelectionSnapshot | null
@@ -52,31 +53,33 @@ const PREVIEW_SELECTION: SelectionSnapshot = {
 
 export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, deps: IdeCommandDeps<TIde>): void {
 	pi.registerCommand("ide", {
-		description: "Connect to an IDE or configure IDE integration",
+		description: "Manage IDE connections or configure IDE integration",
 		handler: async (_args, ctx) => {
-			const ides = await deps.discoverMatchingIdes(ctx.cwd)
+			const discovered = await deps.discoverMatchingIdes(ctx.cwd)
+			const connected = deps.connected()
+			const ides = [...new Map([...discovered, ...connected].map(ide => [ide.port, ide])).values()]
 
 			function selectionPreviewText(): string {
 				if (!deps.config.value.selectionContext) return ""
-				const snapshot = connected ? (deps.selectionSnapshot() ?? PREVIEW_SELECTION) : PREVIEW_SELECTION
+				const snapshot = deps.selectionSnapshot() ?? PREVIEW_SELECTION
 				return `\`\`\`\n${formatSelectionContext(snapshot, path => path, deps.config.value.selectedTextLineLimit)}\n\`\`\``
 			}
 
-			const connected = deps.connected()
 			const items: SelectItem[] = [
 				...ides.map((ide): SelectItem => {
 					const name = ide.lock.ide ?? "IDE"
 					const pid = ide.lock.pid ?? "?"
-					const cur = connected?.port === ide.port ? " (current)" : ""
-					return { value: ide.port.toString(), label: `${name} ${pid}${cur}` }
+					const action = connected.some(current => current.port === ide.port) ? "Disconnect" : "Connect"
+					const context = deps.active()?.port === ide.port ? " (context)" : ""
+					return { value: ide.port.toString(), label: `${action} ${name} ${pid}${context}` }
 				}),
-				{ value: "Disconnect", label: "Disconnect" },
+				{ value: "Disconnect", label: "Disconnect all" },
 				{ value: "Configure", label: "Settings", description: "Edit user and workspace config" }
 			]
 
 			let initialIndex = items.length - 1
-			if (connected) {
-				const idx = items.findIndex(i => i.value === connected.port.toString())
+			if (deps.active()) {
+				const idx = items.findIndex(i => i.value === deps.active()?.port.toString())
 				if (idx !== -1) initialIndex = idx
 			}
 
@@ -88,7 +91,7 @@ export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, de
 						const container = new Container()
 
 						container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)))
-						container.addChild(new Text(theme.fg("accent", theme.bold("IDE Connection")), 1, 0))
+						container.addChild(new Text(theme.fg("accent", theme.bold("IDE Connections")), 1, 0))
 
 						const selectList = new SelectList(items, Math.min(items.length, 12), {
 							selectedPrefix: (t: string) => theme.fg("accent", t),
@@ -155,13 +158,15 @@ export function registerIdeCommand<TIde extends CommandIde>(pi: ExtensionAPI, de
 							if (debugNotifications && !config.value.debugNotifications) deps.clearDebugNotificationMessages()
 							debugNotifications = config.value.debugNotifications
 							deps.updateStatus()
+							deps.scheduleReconnect()
 						},
 						done
 					})
 				})
 			} else if (result.action === "connect") {
 				try {
-					await deps.connect(result.ide)
+					if (connected.some(ide => ide.port === result.ide.port)) deps.disconnect(result.ide)
+					else await deps.connect(result.ide)
 				} catch (err) {
 					deps.updateStatus()
 					ctx.ui.notify(err instanceof Error ? err.message : String(err), "error")

@@ -7,15 +7,15 @@ export function createConfigState() {
 		schema: {
 			autoConnectOnStartup: field.boolean(true, {
 				label: "Auto-connect on startup",
-				description: "Connect automatically to a matching IDE when Pi starts"
+				description: "Connect to each unambiguous matching IDE app when Pi starts"
 			}),
 			autoReconnect: field.boolean(true, {
-				label: "Auto-reconnect on loss",
-				description: "Reconnect automatically when the IDE connection closes"
+				label: "Auto-reconnect and discover",
+				description: "Reconnect lost IDEs and discover newly opened apps; manual disconnects stay off for this session"
 			}),
 			selectionContext: field.boolean(true, {
 				label: "Selection context",
-				description: "Attach current IDE selection to the next eligible prompt"
+				description: "Attach the latest-active IDE's selection to the next eligible prompt"
 			}),
 			keepPastSelectionContext: field.boolean(true, {
 				label: "Keep past selection context",
@@ -32,7 +32,7 @@ export function createConfigState() {
 					9: "Include up to 9 lines"
 				}
 			}),
-			displaySelectionMessages: field.boolean(false, {
+			displaySelectionMessages: field.boolean(true, {
 				label: "Display context messages",
 				description: "Show injected IDE context messages in the transcript"
 			}),

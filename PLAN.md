@@ -12,11 +12,11 @@ current behavior is recorded in `CODE.md`.
       one `event` method carrying `selection`/`mention`/`diagnostics`; unknown requests
       fail with `-32601`; zero-based inclusive spans with `TextExcerpt` head/tail excerpts.
 - [x] VS Code plugin (`ide-plugins/vscode`): WS server + lockfile per window, selection
-      publishing from text-editor selection events only, `Pi: Mention Selection`,
+      publishing from focused editor activity, `Pi: Mention Selection`,
       notebook cell-relative spans, QuickPick targeting, debug log channel.
 - [x] Pi extension on native protocol: discovery/reconnect, footer status, `/ide` UI,
       scoped User/Workspace settings, ambient selection context with configurable history,
-      mention context, `session_info_changed`.
+      mention context, context messages visible by default, `session_info_changed`.
 - [x] IDE Problems: explicit attach commands (selection/file/workspace) with markers,
       LSP half-open ranges preserved, notebook cell id/index, bounded selected-code
       excerpts, empty-attachment notifications, one global model-context cap across
@@ -29,6 +29,20 @@ current behavior is recorded in `CODE.md`.
 - [ ] Both Problems attachment commands and resulting model context after extension reload.
 - [ ] Connect, footer status, ambient selection context, mention command, multi-selection,
       multiple Pi sessions target picker, stale lock cleanup.
+
+## Obsidian and concurrent IDEs
+
+Build an Obsidian desktop adapter on the existing Pi protocol, independently of the
+notebook branch. Let distinct apps serving the same directory coexist. Ambient
+context follows latest user activity; explicit mentions work from either app.
+
+- [x] Per-app connections, latest-active context, focus-aware publishing, and independent recovery.
+- [x] Obsidian note/selection/mention plugin and vault-local installer with optional CLI enable/reload.
+- [x] Distinct context-source badge in the footer; process details stay in `/ide`.
+- [x] Reading-view selection/mentions carry rendered excerpts without guessed source positions.
+- [x] Lifecycle/range tests, bundle-level protocol smoke test, builds, and scratch-vault install checks.
+- [ ] Live Obsidian + VS Code testing in a chosen vault.
+- [ ] Refine selection and disable/disconnect UX after the initial implementation.
 
 ## Marketing assets
 

@@ -46,7 +46,8 @@ export function lineRangeText(lineStart: number, lineEnd: number): string {
 function selectionLineRange(span: IdeSpan): SelectionRangeSnapshot | undefined {
 	const range = span.range
 	if (!range) return undefined
-	const isCursor = range.start.line === range.end.line && range.start.character === range.end.character
+	// Inclusive ranges put a one-character selection at the same endpoints as a cursor.
+	const isCursor = range.start.line === range.end.line && range.start.character === range.end.character && !span.text?.totalCharacters
 	const lineStart = range.start.line + 1
 	const lineEnd = range.end.line + 1
 	if (lineEnd < lineStart) return undefined
@@ -74,7 +75,12 @@ function snapshotText(span: IdeSpan): IdeTextExcerpt | undefined {
 export function selectionSnapshotFromEvent(selection: IdeLocationEventParams): SelectionSnapshot | undefined {
 	if (!selection.file) return undefined
 	const span = selection.spans[0]
-	if (!span) return { filePath: selection.file }
+	if (!span) {
+		return {
+			filePath: selection.file,
+			...(selection.text?.totalCharacters ? { text: selection.text } : {})
+		}
+	}
 
 	const cell = snapshotCell(span.cell)
 	const range = selectionLineRange(span)
