@@ -216,10 +216,10 @@ function textRangeForSelection(document: vscode.TextDocument, selection: vscode.
 
 function rangeForSelection(document: vscode.TextDocument, selection: vscode.Selection): NonNullable<IdeSpan["range"]> {
 	const lineEnd = endLineBeforeTrailingNewline(document, selection)
-	const end = lineEnd ? new vscode.Position(lineEnd.line, Math.max(0, lineEnd.character - 1)) : selection.end
+	const end = lineEnd ?? selection.end
 	return {
 		start: { line: selection.start.line, character: selection.start.character },
-		end: { line: end.line, character: end.character }
+		end: { line: end.line, character: Math.max(0, end.character - (selection.isEmpty ? 0 : 1)) }
 	}
 }
 
@@ -253,21 +253,38 @@ function spansForSelections(document: vscode.TextDocument, selections: readonly 
 	}))
 }
 
-function eventForTextEditorSelection(event: vscode.TextEditorSelectionChangeEvent): IdeLocationEventParams | undefined {
-	if (event.textEditor.document.uri.scheme === "vscode-notebook-cell") {
-		const cell = findNotebookCell(event.textEditor.document)
+function eventForTextEditorSelection(editor: vscode.TextEditor): IdeLocationEventParams | undefined {
+	if (editor.document.uri.scheme === "vscode-notebook-cell") {
+		const cell = findNotebookCell(editor.document)
 		return cell
 			? {
 					type: "selection",
 					file: cell.notebook.uri.fsPath,
-					spans: spansForSelections(cell.document, event.selections).map(span => ({ cell: cellAddress(cell), ...span }))
+					spans: spansForSelections(cell.document, editor.selections).map(span => ({ cell: cellAddress(cell), ...span }))
 				}
 			: undefined
 	}
 	return {
 		type: "selection",
-		file: event.textEditor.document.uri.fsPath,
-		spans: spansForSelections(event.textEditor.document, event.selections)
+		file: editor.document.uri.fsPath,
+		spans: spansForSelections(editor.document, editor.selections)
+	}
+}
+
+function publishSelection(editor: vscode.TextEditor | undefined, force = false): void {
+	// Background document updates must not steal ambient context from another connected app.
+	if (!vscode.window.state.focused) return
+	const selection = (editor && editor.document.uri.scheme !== "output" && eventForTextEditorSelection(editor)) || {
+		type: "selection",
+		file: null,
+		spans: []
+	}
+	const key = JSON.stringify(selection)
+	for (const conn of connections.values()) {
+		if (!conn.hello.connection.subscriptions?.includes("selection")) continue
+		if (!force && lastSelectionKeys.get(conn.socket) === key) continue
+		lastSelectionKeys.set(conn.socket, key)
+		send(conn.socket, { jsonrpc: "2.0", method: "event", params: selection })
 	}
 }
 
@@ -428,6 +445,7 @@ function handleMessage(socket: WebSocket, raw: string): void {
 					ide: { name: vscode.env.appName, version: vscode.version }
 				}
 			})
+			publishSelection(vscode.window.activeTextEditor)
 			return
 		}
 		case "ping":
@@ -497,25 +515,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			if (event) return attachDiagnostics(event)
 		}),
 		vscode.window.onDidChangeTextEditorSelection(event => {
-			if (event.textEditor.document.uri.scheme === "output") return
+			if (event.textEditor !== vscode.window.activeTextEditor) return
 			logVsCodeEvent("onDidChangeTextEditorSelection", JSON.stringify(event))
-			const selection = eventForTextEditorSelection(event)
-			if (!selection) return
-			const key = JSON.stringify(selection)
-			for (const conn of connections.values()) {
-				if (!conn.hello.connection.subscriptions?.includes("selection")) continue
-				if (selection.spans.length === 0) {
-					if (!lastSelectionKeys.has(conn.socket)) continue
-					lastSelectionKeys.delete(conn.socket)
-					logChannel?.debug(`Clear selection for ${label(conn)}`)
-					send(conn.socket, { jsonrpc: "2.0", method: "event", params: { type: "selection", file: null, spans: [] } })
-					continue
-				}
-				if (lastSelectionKeys.get(conn.socket) === key) continue
-				lastSelectionKeys.set(conn.socket, key)
-				logChannel?.debug(`Send ${eventSummary(selection)} to ${label(conn)}`)
-				send(conn.socket, { jsonrpc: "2.0", method: "event", params: selection })
-			}
+			publishSelection(event.textEditor)
+		}),
+		vscode.window.onDidChangeActiveTextEditor(editor => publishSelection(editor, true)),
+		vscode.window.onDidChangeWindowState(state => {
+			if (state.focused) publishSelection(vscode.window.activeTextEditor, true)
+		}),
+		vscode.workspace.onDidChangeTextDocument(event => {
+			const editor = vscode.window.activeTextEditor
+			if (editor?.document === event.document) publishSelection(editor)
 		}),
 		vscode.workspace.onDidChangeWorkspaceFolders(event => {
 			logVsCodeEvent(

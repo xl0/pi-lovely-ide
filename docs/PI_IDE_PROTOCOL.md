@@ -45,6 +45,11 @@ Fields:
 
 A Pi client matches a lockfile when its cwd is equal to or descendant of any `workspaces` root after path normalization.
 
+The Pi client can connect to multiple distinct IDE apps for one workspace. This client
+groups endpoints by advertised `ide` name: one matching endpoint per app auto-connects,
+while multiple matching windows of the same app need an explicit choice. PID alone is
+not endpoint identity; several Obsidian vaults can share a process.
+
 Servers should remove their lockfile on shutdown/deactivate when possible. Servers should also opportunistically remove stale `pi-ide` lockfiles before writing their own. A lockfile is safe to delete only when all are true:
 
 - It parses as `protocol: "pi-ide"`.
@@ -250,7 +255,10 @@ Whole-file example:
 Fields:
 
 - `file: string | null` — absolute IDE-side path, or `null` for no active file/selection.
-- `spans: Span[]` — selected/referenced spans in `file`. Empty with `file: null` means no selection/reference. Empty with `file: string` means whole file.
+- `spans: Span[]` — selected/referenced spans in `file`. Empty with `file: null` means no selection/reference. Empty with `file: string` means a file reference, optionally with an unlocated excerpt in `text`.
+- `text?: TextExcerpt` — selected text without source coordinates, such as rendered text
+  in a reading view. Valid only with a non-null `file` and empty `spans`. It need not
+  appear verbatim in the source file; clients must not infer source positions from it.
 - `span.cell?: { index?: number; id?: string }` — notebook cell address when `file` is a notebook and the span is inside one cell. `index` is zero-based. `id` is the notebook cell id when available.
 - `span.range?: { start, end }` — zero-based editor range. When `span.cell` is present, range positions are relative to the cell text, not the serialized notebook file. Missing `range` with `cell` means whole cell.
 - `span.range.start` — inclusive start position.
@@ -262,6 +270,9 @@ Fields:
 - `span.text.totalLines?: number` — total selected/referenced line count before truncation.
 - `span.text.headTruncated?: boolean` — `head` was character-truncated from the end.
 - `span.text.tailTruncated?: boolean` — `tail` was character-truncated from the beginning.
+
+An inclusive one-character selection also has equal start/end positions. Its non-empty
+`span.text` distinguishes it from a cursor; clients must not discard that selected text.
 
 When selected/referenced text is too large, senders should send first and last N lines (sender-chosen N), not only a prefix. Receivers should render both edges with an omitted-text marker between them.
 
@@ -282,9 +293,34 @@ Senders whose editor APIs use half-open ranges should map a non-empty selection 
 
 A v1 event represents references from one file only. A span without `range` is valid only when `cell` is present; whole-file references use `file` plus empty `spans`.
 
+Reading-view selection/mention example:
+
+```json
+{
+  "type": "mention",
+  "file": "/home/me/vault/note.md",
+  "spans": [],
+  "text": { "head": "Selected rendered text", "totalCharacters": 22, "totalLines": 1 }
+}
+```
+
+Clients render the file reference and bounded excerpt without a line/range suffix.
+Older clients that do not consume this optional field retain just the file reference.
+
 ### `selection`
 
 Ambient active editor selection changed. IDEs may send this to all connected Pi client connections subscribed to `selection`; selected files may be outside the Pi workspace.
+
+For latest-active context across apps, publish only from the focused IDE window.
+Publish current state on focus gain (even unchanged) and after a new subscriber's hello
+while focused. Active-file and user selection changes update state; background edits
+and window blur must not publish a takeover or clear another app's context.
+
+The client uses the latest such event as its one ambient context source. Explicit
+mentions remain independent and may come from any connected IDE. With no active file,
+the focused IDE sends `file: null, spans: []`. Reading views that cannot map rendered
+selections to source positions send a file reference and optional top-level `text`,
+not fake ranges.
 
 ```json
 {

@@ -1,0 +1,9 @@
+{
+	"id": "pi-lovely-ide",
+	"name": "Pi Lovely IDE",
+	"version": "0.1.0",
+	"minAppVersion": "1.7.0",
+	"description": "Pi IDE Protocol bridge for Obsidian.",
+	"author": "xl0",
+	"isDesktopOnly": true
+}

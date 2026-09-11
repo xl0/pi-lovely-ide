@@ -4,19 +4,21 @@ Connect [Pi](https://github.com/earendil-works/pi) to your IDE. Pi sees what you
 selected in the editor, and you can send it code ranges and diagnostics with a keystroke —
 no copy-pasting file paths, line numbers, or compiler errors into the prompt.
 
-The integration has two halves:
+The integration consists of:
 
 - **`@xl0/pi-lovely-ide`** (this package) — a Pi extension that discovers IDE servers,
-  maintains the connection, and turns IDE events into model context.
+  maintains connections, and turns IDE events into model context.
 - **[Pi Lovely IDE](https://marketplace.visualstudio.com/items?itemName=xl0.pi-lovely-ide)**
   (`xl0.pi-lovely-ide`) — a VS Code extension that publishes editor state over the
   [Pi IDE Protocol](./docs/PI_IDE_PROTOCOL.md). Lives in this repo under
   [`ide-plugins/vscode`](./ide-plugins/vscode), distributed separately through the Marketplace.
+- **[Obsidian plugin](./ide-plugins/obsidian)** — note/selection context and explicit
+  mentions, installed locally into a desktop vault.
 
 ## What you get
 
 - **Selection context** — Pi's footer live-tracks your cursor and selection. When you submit
-  a prompt, the current selection (with a bounded excerpt of the selected text) is attached
+  a prompt, the latest-active IDE's selection (with a bounded excerpt of the selected text) is attached
   as context, so "why is this wrong?" just works.
 - **Mentions** — `Alt+Shift+L` in VS Code pastes an `@file#range` reference into Pi's input.
   The model gets the referenced code alongside your prompt.
@@ -25,7 +27,7 @@ The integration has two halves:
   workspace Problems). The model sees the diagnostics and the selected code they belong to.
 - **Notebook support** — selections, mentions, and Problems in notebook cells carry the cell
   id/index and cell-relative line numbers.
-- **`/ide`** — selector and live preview: pick an IDE endpoint or open scoped settings for
+- **`/ide`** — connection controls and live preview: connect/disconnect each IDE or open scoped settings for
   auto-connect, auto-reconnect, selection context/history, context-message display, debug
   logging of raw IDE events, and the selected-text line budget.
 
@@ -56,11 +58,34 @@ The integration has two halves:
 Settings support User (`~/.pi/agent/xl0-lovely-ide.json`) and Workspace
 (`<workspace>/.pi/xl0-lovely-ide.json`) scopes. Workspace values override User values.
 
+### Obsidian and VS Code together
+
+Open the same project in VS Code and as an Obsidian vault, then run Pi in that directory
+(or a subdirectory). One matching endpoint per app connects automatically. Multiple
+matching windows of the same app require an explicit `/ide` choice.
+
+The last app you focus or use supplies ambient selection context. Background updates
+and window blur do not replace it. Explicit mentions work from either app. The footer
+highlights the current context source as `[App]` and dims other connected apps.
+PIDs remain available in `/ide` rather than cluttering the footer.
+
+With **Auto-reconnect and discover** enabled, Pi also finds apps opened later.
+Disconnecting an app in `/ide` suppresses its automatic connection until you reconnect
+it manually or reload/restart the Pi session. **Disconnect all** also pauses discovery.
+Disconnecting the context source clears ambient context until another app publishes
+activity; disconnecting an inactive app leaves the current context alone.
+
+Obsidian's Reading view sends selected rendered text with the note reference, without
+guessed source positions. This works for ambient context and **Pi: Mention Selection**;
+**Pi: Mention Whole Note** omits the excerpt.
+
+Obsidian installation is currently local/development-only; see below.
+
 ## How it works
 
-Each VS Code window runs a small WebSocket server on localhost and advertises it through a
-lockfile. Pi discovers lockfiles, picks the server whose workspace matches its own working
-directory, and connects.
+Each VS Code window or Obsidian vault runs a small WebSocket server on localhost and
+advertises it through a lockfile. Pi discovers matching servers and connects to distinct
+apps independently.
 
 ```text
   VS Code window                                     Pi session
@@ -113,6 +138,8 @@ Pi package:
 
 ```bash
 bun install
+bun install --cwd ide-plugins/vscode
+bun install --cwd ide-plugins/obsidian
 bun run check
 pi -e .
 ```
@@ -133,6 +160,27 @@ writes `~/.pi/ide/<port>.lock`. To package and install the plugin into your regu
 ```bash
 ./dev-install-vscode-plugin.sh [ide-cli]
 ```
+
+Obsidian plugin:
+
+```bash
+./dev-install-obsidian-plugin.sh /absolute/path/to/vault
+# Automatically enable/reload through Obsidian CLI, targeting an explicit vault name/ID:
+./dev-install-obsidian-plugin.sh /absolute/path/to/vault "My Vault"
+```
+
+With the second argument, the installer enables the plugin if disabled, or reloads
+it if already enabled. With only a path, enable **Pi Lovely IDE** manually in
+Obsidian's Community plugins settings. Start Pi
+inside the vault with this checkout loaded (`pi -e /absolute/path/to/pi-lovely-ide`).
+Rebuild/reinstall the VS Code plugin too for focus-aware selection publishing, and
+`/reload` an existing Pi session to load the multi-IDE client.
+
+The installer copies plugin artifacts and optionally manages activation through the CLI;
+it never edits notes or vault settings files directly.
+See [Obsidian development notes](./ide-plugins/obsidian/README.md) for limitations.
+Root checks cover both adapters and the multi-IDE client. Connection tests run under
+Node (Pi's runtime), with Bun used to bundle their TypeScript.
 
 Manual smoke test:
 

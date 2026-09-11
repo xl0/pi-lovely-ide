@@ -36,6 +36,11 @@ cell-relative line numbers.
 The pasted references are plain text — edit or delete them freely in Pi's input. The rich
 context is attached only if the reference is still present in the prompt you submit.
 
+Pi can also stay connected to Obsidian for the same directory. Ambient context follows
+the latest-active app: VS Code publishes on focus and active-editor activity, not
+background updates or blur. Explicit mentions and Problems attachments still work.
+Use `/ide` in Pi to disconnect an individual app without dropping the other.
+
 ## How it works
 
 The extension runs a WebSocket server on `127.0.0.1` (one per window) and advertises it in

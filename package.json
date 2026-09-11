@@ -21,8 +21,9 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"typecheck": "tsgo --noEmit && cd ide-plugins/vscode && bun run typecheck",
-		"check": "bun run typecheck && cd ide-plugins/vscode && bun run check && cd ../.. && bun run biome:check",
+		"test": "bun build ./tests/connections.test.ts --target=node --format=cjs --external undici --outfile=.pi/tests/connections.cjs && node --test .pi/tests/connections.cjs",
+		"typecheck": "tsgo --noEmit && bun run --cwd ide-plugins/vscode typecheck && bun run --cwd ide-plugins/obsidian typecheck",
+		"check": "bun run typecheck && bun run test && bun run --cwd ide-plugins/obsidian test && bun run biome:check",
 		"release": "npm publish --access public",
 		"lint": "biome lint .",
 		"format": "biome format --write .",

@@ -77,7 +77,8 @@ export type IdeSpan = v.InferOutput<typeof SpanSchema>
 const LocationEventParamsSchema = v.looseObject({
 	type: v.picklist(["selection", "mention"]),
 	file: v.nullable(v.string()),
-	spans: v.array(SpanSchema)
+	spans: v.array(SpanSchema),
+	text: v.optional(TextExcerptSchema)
 })
 export type IdeLocationEventParams = v.InferOutput<typeof LocationEventParamsSchema>
 
@@ -224,6 +225,8 @@ function parseIdeEventParams(value: unknown): IdeEventParams | undefined {
 		if (params.scope === "selection" && params.selectionLines.some(range => range.end < range.start)) return undefined
 		return params
 	}
+	// File-level excerpts (e.g. rendered text) have no source coordinates.
+	if (params.text !== undefined && (params.file === null || params.spans.length !== 0)) return undefined
 	if (params.file === null) return params.spans.length === 0 ? params : undefined
 	for (const span of params.spans) {
 		if (!span.range && !span.cell) return undefined
