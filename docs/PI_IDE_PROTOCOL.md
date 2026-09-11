@@ -291,6 +291,10 @@ Large excerpt example:
 
 Senders whose editor APIs use half-open ranges should map a non-empty selection ending at column 0 to the previous line's last character before sending, and should exclude that trailing newline from `span.text`. Example: VS Code selection `52:0-53:0` for one whole line should be sent as `52:0-52:<last-character>`.
 
+Exception: if trimming would erase the entire selection (a single newline, including
+an empty line), retain the newline in `span.text`. Use its position at the preceding
+line's end for both range endpoints; non-empty text distinguishes it from a cursor.
+
 A v1 event represents references from one file only. A span without `range` is valid only when `cell` is present; whole-file references use `file` plus empty `spans`.
 
 Reading-view selection/mention example:

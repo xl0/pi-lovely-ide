@@ -29,7 +29,7 @@ export function inclusiveRangeForBounds(
 		const endLine = to.line - 1
 		return {
 			start: { line: from.line, character: from.ch },
-			end: { line: endLine, character: Math.max(0, getLine(endLine).length - 1) }
+			end: { line: endLine, character: Math.max(endLine === from.line ? from.ch : 0, getLine(endLine).length - 1) }
 		}
 	}
 
@@ -43,7 +43,9 @@ export function textEndForBounds(getLine: (line: number) => string, from: Editor
 	if (comparePosition(from, to) === 0) return to
 	if (to.ch === 0 && to.line > from.line) {
 		const line = to.line - 1
-		return { line, ch: getLine(line).length }
+		const end = { line, ch: getLine(line).length }
+		// Keep a newline when removing it would erase the entire selection.
+		if (comparePosition(from, end) < 0) return end
 	}
 	return to
 }
