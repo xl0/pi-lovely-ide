@@ -40,7 +40,8 @@ context follows latest user activity; explicit mentions work from either app.
 - [x] Obsidian note/selection/mention plugin and vault-local installer with optional CLI enable/reload.
 - [x] Distinct context-source badge in the footer; process details stay in `/ide`.
 - [x] Reading-view selection/mentions carry rendered excerpts without guessed source positions.
-- [x] Lifecycle/range tests, bundle-level protocol smoke test, builds, and scratch-vault install checks.
+- [x] Lifecycle/range tests (including newline-only boundaries), bundle-level protocol
+      smoke test, Obsidian production build in root checks, and scratch-vault install checks.
 - [ ] Live Obsidian + VS Code testing in a chosen vault.
 - [ ] Refine selection and disable/disconnect UX after the initial implementation.
 

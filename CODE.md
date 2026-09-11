@@ -12,7 +12,8 @@
 - `docs/CC_IDE_PROTOCOL.md` is historical Claude Code reference only.
 - `archive/IDE_DIAGNOSTICS_TOOL.md` records the removed model-pulled diagnostics design.
 - Root TS config is strict, including `exactOptionalPropertyTypes`.
-- Root checks cover Pi, both IDE adapters, and focused regression tests.
+- Root checks cover Pi, both IDE adapters, focused regression tests, and the
+  Obsidian production bundle.
 - Biome allowlists source, tests, and config/build files; generated artifacts are outside its scope.
 - Runtime validation uses Valibot in shared protocol and extension-local state.
 - Pi peer/dev dependency is `@earendil-works/pi-coding-agent` `^0.80.10` for
@@ -128,6 +129,8 @@ Selection events:
   File-level text is rejected alongside spans or a null file.
 - Same-position ranges without selected text are cursors; text disambiguates
   one-character selections in the inclusive wire format.
+- Newline-only selections retain their newline excerpt and use the preceding line's
+  end position for both endpoints, instead of becoming inverted ranges or cursors.
 - Non-empty selected text is stored as `TextExcerpt` when supplied.
 
 Mention events:
@@ -286,7 +289,7 @@ Selection publishing:
   file workspace.
 - Dedupe is per socket using last selection keys.
 - VS Code half-open selections ending at column 0 map to previous line's last character for
-  protocol ranges; text excerpts exclude that trailing newline.
+  protocol ranges; text excerpts exclude that trailing newline unless it is the entire selection.
 - Small selected text sends full `head`.
 - Large selected text sends first/last 20 selected lines, each edge capped at 2048 chars.
 - Notebook cell text selections/cursors map to notebook file plus cell address plus

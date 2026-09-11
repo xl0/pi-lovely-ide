@@ -211,7 +211,8 @@ function endLineBeforeTrailingNewline(document: vscode.TextDocument, selection: 
 
 function textRangeForSelection(document: vscode.TextDocument, selection: vscode.Selection): vscode.Range {
 	const lineEnd = endLineBeforeTrailingNewline(document, selection)
-	return lineEnd ? new vscode.Range(selection.start, lineEnd) : selection
+	// Keep a newline when removing it would erase the entire selection.
+	return lineEnd?.isAfter(selection.start) ? new vscode.Range(selection.start, lineEnd) : selection
 }
 
 function rangeForSelection(document: vscode.TextDocument, selection: vscode.Selection): NonNullable<IdeSpan["range"]> {
@@ -219,7 +220,10 @@ function rangeForSelection(document: vscode.TextDocument, selection: vscode.Sele
 	const end = lineEnd ?? selection.end
 	return {
 		start: { line: selection.start.line, character: selection.start.character },
-		end: { line: end.line, character: Math.max(0, end.character - (selection.isEmpty ? 0 : 1)) }
+		end: {
+			line: end.line,
+			character: Math.max(end.line === selection.start.line ? selection.start.character : 0, end.character - (selection.isEmpty ? 0 : 1))
+		}
 	}
 }
 
