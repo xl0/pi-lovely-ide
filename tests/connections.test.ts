@@ -120,6 +120,17 @@ test("selection sent immediately after hello is retained through connection setu
 	assert.equal(connections.selection?.snapshotCurrent()?.filePath, "/test/code.ts")
 })
 
+test("an unnamed endpoint does not fabricate selection provenance", async () => {
+	const ide = await endpoint("unnamed", "/test/note.md")
+	delete ide.ide.lock.ide
+	const connections = pool(async () => [ide.ide])
+	await connections.start()
+	await until(() => connections.active === ide.ide)
+	const snapshot = connections.selection?.snapshotCurrent()
+	assert(snapshot)
+	assert.equal(Object.hasOwn(snapshot, "ide"), false)
+})
+
 test("ambiguous apps need a choice; late discovery respects manual disconnects", async () => {
 	const code = await endpoint("VS Code")
 	const otherCode = await endpoint("VS Code")

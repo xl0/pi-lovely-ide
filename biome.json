@@ -16,7 +16,8 @@
 			"ide-plugins/*/test/**/*.ts",
 			"ide-plugins/*/*.json",
 			"ide-plugins/*/*.mjs",
-			"tests/**/*.ts"
+			"tests/**/*.ts",
+			"scripts/**/*.ts"
 		]
 	},
 	"formatter": {

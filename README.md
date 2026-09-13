@@ -13,7 +13,7 @@ The integration consists of:
   [Pi IDE Protocol](./docs/PI_IDE_PROTOCOL.md). Lives in this repo under
   [`ide-plugins/vscode`](./ide-plugins/vscode), distributed separately through the Marketplace.
 - **[Obsidian plugin](./ide-plugins/obsidian)** — note/selection context and explicit
-  mentions, installed locally into a desktop vault.
+  mentions for desktop vaults, distributed as GitHub release assets.
 
 ## What you get
 
@@ -58,6 +58,31 @@ The integration consists of:
 Settings support User (`~/.pi/agent/xl0-lovely-ide.json`) and Workspace
 (`<workspace>/.pi/xl0-lovely-ide.json`) scopes. Workspace values override User values.
 
+### Obsidian setup
+
+Requires **Obsidian desktop 1.13.7+** and Pi; mobile is not supported. This is the
+currently exercised compatibility floor, not a claim that older versions cannot work.
+The plugin has not yet been listed in Community plugins.
+
+- Until the first release, use the [local installer](#development).
+- Once published, download `main.js` and `manifest.json` from an Obsidian plugin
+  [release](https://github.com/xl0/pi-lovely-ide/releases) (tagged `x.y.z`).
+  Put both files in `<vault>/.obsidian/plugins/pi-lovely-ide/`, then enable
+  **Pi Lovely IDE** in Settings → Community plugins.
+- For beta updates, [BRAT](https://tfthacker.com/BRAT) can install this repository
+  after its first release is published.
+
+The published Pi package `0.3.4` predates the Obsidian integration. Until an updated
+npm version is released, start Pi inside your vault with this checkout loaded:
+
+```bash
+pi -e /absolute/path/to/pi-lovely-ide
+```
+
+Run **Pi: Mention Selection** or **Pi: Mention Whole Note** from Obsidian's command
+palette. **Alt+Shift+L** defaults to Mention Selection, matching VS Code; override it
+in Settings → Hotkeys. With multiple Pi sessions, choose which one receives the mention.
+
 ### Obsidian and VS Code together
 
 Open the same project in VS Code and as an Obsidian vault, then run Pi in that directory
@@ -81,7 +106,26 @@ Obsidian's Reading view sends selected rendered text with the note reference, wi
 guessed source positions. This works for ambient context and **Pi: Mention Selection**;
 **Pi: Mention Whole Note** omits the excerpt.
 
-Obsidian installation is currently local/development-only; see below.
+Release preparation and directory submission are documented in the
+[Obsidian publishing guide](./ide-plugins/obsidian/README.md#publishing).
+
+### Privacy and external services
+
+The adapter sends note paths, cursor/range information, and bounded selected-text
+excerpts to subscribed Pi sessions over an authenticated loopback WebSocket. It does
+not send data directly to an internet service and has no telemetry.
+
+When you submit a prompt, Pi may send that context to your configured AI provider
+(for example OpenAI, Anthropic, or Google), or to a local model. Provider accounts,
+API credentials, charges, and data handling depend on your Pi configuration; the
+Obsidian plugin has no separate account or subscription requirement.
+
+The plugin reads/writes discovery lockfiles outside the vault in `~/.pi/ide`
+(or the parent of `PI_CODING_AGENT_DIR`, plus `ide`). It does not edit note contents.
+Pi may retain captured context in its session history. To stop ambient attachment,
+disable **Selection context** in `/ide` settings; disconnect Obsidian in `/ide` or
+disable the plugin to stop the connection. Removing a pasted mention does not disable
+ambient selection context.
 
 ## How it works
 
@@ -109,7 +153,8 @@ per-server token, and the window's workspace folders. Pi only accepts a lockfile
 protocol/version match, the advertised process is alive, and Pi's cwd equals or descends
 from one of the workspace roots. The connection is authenticated with the token and starts
 with a `hello` handshake declaring which events Pi wants (`selection`, `mention`,
-`diagnostics`). Everything stays on localhost.
+`diagnostics`). This transport stays on localhost; submitted model context follows
+Pi's provider configuration as described above.
 
 **From event to model context.** Selection events only update Pi's footer and a pending
 snapshot — nothing reaches the model until you submit a prompt. Mention and Problems events
@@ -193,6 +238,59 @@ Manual smoke test:
 5. Select text in VS Code; Pi footer should show the file/range.
 6. Run `Pi: Mention Selection`; Pi input should receive `@file#x-y`.
 7. Run `Pi: Attach Problems`; Pi input should receive `[problems: path#line-range]`.
+
+## Releasing
+
+The three packages have independent versions and release paths:
+
+| Package | Version source | Release |
+| --- | --- | --- |
+| Pi npm package | Root `package.json` | `bun run release [patch\|minor\|major\|x.y.z] [--no-push]` |
+| VS Code / Open VSX | `ide-plugins/vscode/package.json` | Subpackage `release` / `release:openvsx` |
+| Obsidian | Root `manifest.json` | Plain `x.y.z` tag → draft GitHub release |
+
+### Pi npm package
+
+Write user-facing entries under [`CHANGELOG.md`](./CHANGELOG.md)'s `[Unreleased]`
+section (`Added`, `Changed`, `Fixed`, `Removed` as needed), then commit them.
+From `master`, with Bun 1.3.13 and npm 12.0.2 (logged in):
+
+```sh
+bun run release minor
+# Or prepare only the local release commit and tag:
+bun run release minor --no-push
+```
+
+Following the Lovely Web/Config flow, the script checks versions and registry state,
+runs `prepublishOnly` and a package dry run, rolls the changelog into a dated release,
+and bumps **only root `package.json`**. It pauses for review before committing those
+two files and creating `vX.Y.Z`. Unrelated changes are left alone.
+
+By default it pushes and waits for `.github/workflows/publish.yml` to stage the npm
+package with OIDC provenance and create a changelog-based GitHub Release. It then asks
+for a 2FA code to approve publication. `--no-push` stops after the local commit/tag.
+Configure npm's GitHub Actions trusted publisher for `xl0/pi-lovely-ide`, workflow
+`publish.yml`, environment `npm`; create that GitHub environment too. No npm token
+is needed in CI.
+
+`v`-prefixed tags belong to npm and do not trigger the Obsidian workflow. The script
+does not change adapter versions or publish either adapter.
+
+### VS Code and Open VSX
+
+Update the adapter's version independently, then run the desired publisher:
+
+```sh
+bun run --cwd ide-plugins/vscode release          # VS Code Marketplace
+bun run --cwd ide-plugins/vscode release:openvsx  # Open VSX
+```
+
+These use `vsce publish` and `ovsx publish`, respectively, and source the adapter's
+git-ignored `.env` for `VSCE_PAT` / `OVSX_PAT`. The `vscode:prepublish` hook type-checks
+and builds the production bundle. There is currently no tag-triggered adapter publish.
+
+For Obsidian's assets, tags, and first directory submission, see its
+[publishing guide](./ide-plugins/obsidian/README.md#publishing).
 
 ## Related projects
 

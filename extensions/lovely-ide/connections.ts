@@ -150,7 +150,7 @@ export class IdeConnections {
 				this.scheduleReconnect()
 			}
 		})
-		const entry = { ide, selection: new SelectionState(this.options.displayPath, ide.lock.ide ?? "IDE"), ready: false }
+		const entry = { ide, selection: new SelectionState(this.options.displayPath, ide.lock.ide), ready: false }
 		this.entries.set(connection, entry)
 		try {
 			await connection.connect()

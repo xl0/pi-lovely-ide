@@ -66,3 +66,10 @@ test("cursor context escapes the IDE name without changing stored metadata", () 
 		'<cursor file="/vault/note.md" ide="Code &amp; &quot;Notes&quot; &lt;test&gt;" position="1:1" />'
 	)
 })
+
+test.each([undefined, "", "   "])("unknown origin %j is omitted from mention metadata and context", ide => {
+	const mention = mentionSnapshotFromEvent({ type: "mention", file: "/vault/note.md", spans: [] }, path => path, ide)
+	if (!mention) throw new Error("Missing mention snapshot")
+	expect(Object.hasOwn(mention.snapshot, "ide")).toBe(false)
+	expect(formatMentionContext([mention], path => path, 3)).toBe('<mention file="/vault/note.md" ref="@/vault/note.md" />')
+})

@@ -284,7 +284,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		}
 
 		if (parsed.params.type === "mention") {
-			const mentionSnapshot = mentionSnapshotFromEvent(parsed.params, displayPath, source.lock.ide ?? "IDE")
+			const mentionSnapshot = mentionSnapshotFromEvent(parsed.params, displayPath, source.lock.ide)
 			const mention = mentionSnapshot?.ref ?? formatAtMention(parsed.params, displayPath)
 			if (!mention) return
 			if (mentionSnapshot) pendingMentions.push(mentionSnapshot)

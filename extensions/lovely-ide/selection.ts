@@ -76,6 +76,7 @@ function snapshotText(span: IdeSpan): IdeTextExcerpt | undefined {
 
 export function selectionSnapshotFromEvent(selection: IdeLocationEventParams, ide?: string): SelectionSnapshot | undefined {
 	if (!selection.file) return undefined
+	ide = ide?.trim() || undefined
 	const span = selection.spans[0]
 	if (!span) {
 		return {
@@ -206,7 +207,7 @@ export class SelectionState {
 
 	constructor(
 		private readonly displayPath: (path: string) => string,
-		private readonly ide: string
+		private readonly ide?: string
 	) {}
 
 	setCurrent(selection: IdeLocationEventParams): void {

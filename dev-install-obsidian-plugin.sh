@@ -43,7 +43,7 @@ bun run typecheck
 bun run build
 
 mkdir -p "$TARGET_DIR"
-cp main.js manifest.json "$TARGET_DIR/"
+cp main.js "$ROOT/manifest.json" "$TARGET_DIR/"
 if [[ -f styles.css ]]; then
 	cp styles.css "$TARGET_DIR/"
 fi

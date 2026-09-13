@@ -53,6 +53,26 @@ test("unload removes the lock immediately even when server shutdown stalls", () 
 	}
 })
 
+test("lock removal failure still stops the server and surfaces the error", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-obsidian-lock-error-"))
+	try {
+		const plugin = new PiPlugin({} as App, {} as PluginManifest)
+		let stopped = false
+		Object.assign(plugin, {
+			lockPath: root, // rmSync without recursive cannot remove a directory.
+			server: {
+				async stop() {
+					stopped = true
+				}
+			}
+		})
+		await expect((plugin as unknown as { cleanup(): Promise<void> }).cleanup()).rejects.toThrow()
+		expect(stopped).toBe(true)
+	} finally {
+		rmSync(root, { recursive: true, force: true })
+	}
+})
+
 test("startup reaps closed Obsidian ports but preserves live vaults sharing a PID", async () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-obsidian-locks-"))
 	const lockDir = join(root, "ide")

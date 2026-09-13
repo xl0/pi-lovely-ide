@@ -433,7 +433,7 @@ export default class PiLovelyIdeObsidianPlugin extends Plugin {
 
 	onunload(): void {
 		this.unloaded = true
-		void this.cleanup()
+		void this.cleanup().catch(error => console.error("[Pi Lovely IDE] Unload failed", error))
 	}
 
 	private registerRuntimeHooks(): void {
@@ -465,6 +465,7 @@ export default class PiLovelyIdeObsidianPlugin extends Plugin {
 		this.addCommand({
 			id: "mention-selection",
 			name: "Pi: Mention Selection",
+			hotkeys: [{ modifiers: ["Alt", "Shift"], key: "L" }],
 			callback: () => void this.mentionSelection(false)
 		})
 		this.addCommand({
@@ -520,7 +521,10 @@ export default class PiLovelyIdeObsidianPlugin extends Plugin {
 		this.lockPath = undefined
 		this.port = undefined
 		// Obsidian does not await onunload; HTTP socket shutdown may also stall indefinitely.
-		if (lockPath) rmSync(lockPath, { force: true })
-		if (server) await server.stop()
+		try {
+			if (lockPath) rmSync(lockPath, { force: true })
+		} finally {
+			if (server) await server.stop()
+		}
 	}
 }

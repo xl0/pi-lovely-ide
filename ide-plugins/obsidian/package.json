@@ -1,6 +1,6 @@
 {
 	"name": "pi-lovely-ide-obsidian",
-	"version": "0.1.0",
+	"private": true,
 	"description": "Pi IDE Protocol bridge for Obsidian",
 	"type": "module",
 	"license": "MIT",
