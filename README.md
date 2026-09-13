@@ -68,6 +68,8 @@ The last app you focus or use supplies ambient selection context. Background upd
 and window blur do not replace it. Explicit mentions work from either app. The footer
 highlights the current context source as `[App]` and dims other connected apps.
 PIDs remain available in `/ide` rather than cluttering the footer.
+Selection and mention context blocks retain their originating app as `ide="Obsidian"`
+(or the other IDE's name), even after switching apps.
 
 With **Auto-reconnect and discover** enabled, Pi also finds apps opened later.
 Disconnecting an app in `/ide` suppresses its automatic connection until you reconnect

@@ -263,7 +263,8 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 
 	function handleMessage(message: JsonRpcMessage, _raw: string, activeConnection: IdeConnection): void {
 		const ctx = activeCtx()
-		if (!ctx || !connections.has(activeConnection)) return
+		const source = connections.get(activeConnection)
+		if (!ctx || !source) return
 		debugNotifyRawIdeNotification(message)
 		const parsed = parseIdeJsonRpcMessage(message)
 		if (message.id != null && message.method != null) {
@@ -283,7 +284,7 @@ export default function lovelyIdeExtension(pi: ExtensionAPI) {
 		}
 
 		if (parsed.params.type === "mention") {
-			const mentionSnapshot = mentionSnapshotFromEvent(parsed.params, displayPath)
+			const mentionSnapshot = mentionSnapshotFromEvent(parsed.params, displayPath, source.lock.ide ?? "IDE")
 			const mention = mentionSnapshot?.ref ?? formatAtMention(parsed.params, displayPath)
 			if (!mention) return
 			if (mentionSnapshot) pendingMentions.push(mentionSnapshot)

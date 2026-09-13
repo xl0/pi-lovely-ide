@@ -112,6 +112,11 @@ Connection behavior:
 
 Selection Context is enabled by default.
 
+Selection/mention snapshots capture the originating connection's IDE name in `ide`.
+Context blocks include it as an escaped `ide="..."` attribute; plain references do not.
+Attribution is captured on receipt and survives focus changes, disconnects, and history
+serialization. Snapshots without a known origin omit the field.
+
 IDE wire ranges are zero-based inclusive display/reference ranges. Pi displays and injects
 them as 1-based line/character positions. Notebook ranges are cell-relative when `cell`
 is present.
@@ -324,7 +329,11 @@ and outgoing protocol summaries without raw selected text.
   with a chooser when several subscribe. Captured targets cannot send after plugin unload.
 - Loopback authentication, hello/session metadata, subscriptions, and private atomic lockfiles
   use Pi IDE v1, with an optional file-level excerpt field. No diagnostics or notebook execution.
-- Unload fences in-flight startup, terminates sockets, and removes the lockfile.
+- Unload fences in-flight startup and removes the lockfile synchronously before
+  awaiting socket shutdown. Obsidian does not await unload hooks.
+- Startup also reaps its own PID's Obsidian lockfiles whose ports refuse connections, even if the
+  renderer PID survived a reload. Live ports and uncertain failures are preserved;
+  filename/port agreement and unchanged contents guard deletion.
 - `dev-install-obsidian-plugin.sh <absolute-vault-path> [vault-name-or-id]` builds and copies
   artifacts into `.obsidian/plugins/pi-lovely-ide`. An explicit second argument queries
   enabled plugins through the CLI, enabling a disabled plugin or reloading an enabled one.
@@ -334,7 +343,7 @@ and outgoing protocol summaries without raw selected text.
 Root `bun run test` bundles connection tests with Bun and runs them under Node, matching
 Pi's runtime; Undici handshakes stalled when those tests ran directly in Bun.
 Network tests cover simultaneous apps, initial selection, late discovery, disconnect/recovery,
-and session replacement. Obsidian tests cover source-range conversion and file-level
+and session replacement. Obsidian tests cover unload/stale-lock cleanup, source-range conversion, and file-level
 excerpt validation/rendering through both selection and mention context.
 The built Obsidian bundle also passed a host-stub/real-WebSocket smoke test for auth,
 hello/selection, focus, mentions, reading view, and unload/lock cleanup.

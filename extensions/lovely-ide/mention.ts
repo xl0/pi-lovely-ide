@@ -22,10 +22,11 @@ export function formatAtMention(event: IdeLocationEventParams, displayPath: (pat
 
 export function mentionSnapshotFromEvent(
 	event: IdeLocationEventParams,
-	displayPath: (path: string) => string
+	displayPath: (path: string) => string,
+	ide?: string
 ): MentionSnapshot | undefined {
 	const ref = formatAtMention(event, displayPath)
-	const snapshot = selectionSnapshotFromEvent(event)
+	const snapshot = selectionSnapshotFromEvent(event, ide)
 	return ref && snapshot ? { ref, snapshot } : undefined
 }
 

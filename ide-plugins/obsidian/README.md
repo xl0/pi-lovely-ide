@@ -4,6 +4,8 @@ Obsidian desktop plugin for Pi IDE Protocol v1.
 
 - Starts authenticated localhost WebSocket server.
 - Advertises vault root as Pi workspace in `~/.pi/ide/<port>.lock`.
+- Removes its lock immediately on unload; startup clears closed-port records left by
+  renderer reloads under the same PID, while preserving live endpoints.
 - Publishes active Markdown note selection/cursor to connected Pi sessions while Obsidian window is focused.
 - Commands:
   - `Pi: Mention Selection`

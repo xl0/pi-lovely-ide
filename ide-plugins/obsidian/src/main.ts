@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto"
+import { rmSync } from "node:fs"
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { createConnection } from "node:net"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { EditorView, type ViewUpdate } from "@codemirror/view"
@@ -66,8 +68,26 @@ async function cleanupStaleLocks(): Promise<void> {
 			if (!file.endsWith(".lock")) return
 			const path = join(lockDir(), file)
 			try {
-				const lock = parseIdeLockFile(await readFile(path, "utf8"))
-				if (lock?.pid && !isPidAlive(lock.pid)) await rm(path, { force: true })
+				const raw = await readFile(path, "utf8")
+				const lock = parseIdeLockFile(raw)
+				if (!lock || file !== `${lock.port}.lock`) return
+				const deadProcess = lock.pid && !isPidAlive(lock.pid)
+				// Reloading an Obsidian renderer can leave its PID alive after the listener is gone.
+				const closedPort =
+					!deadProcess &&
+					lock.ide === "Obsidian" &&
+					lock.pid === process.pid &&
+					(await new Promise<boolean>(resolve => {
+						const socket = createConnection({ host: "127.0.0.1", port: lock.port })
+						const finish = (closed: boolean) => {
+							socket.destroy()
+							resolve(closed)
+						}
+						socket.once("connect", () => finish(false))
+						socket.once("error", (error: NodeJS.ErrnoException) => finish(error.code === "ECONNREFUSED"))
+						socket.setTimeout(300, () => finish(false))
+					}))
+				if ((deadProcess || closedPort) && (await readFile(path, "utf8")) === raw) await rm(path, { force: true })
 			} catch {
 				// Non-pi or unreadable lock; leave it.
 			}
@@ -496,9 +516,11 @@ export default class PiLovelyIdeObsidianPlugin extends Plugin {
 		}
 		const server = this.server
 		this.server = undefined
-		if (server) await server.stop()
-		if (this.lockPath) await rm(this.lockPath, { force: true })
+		const lockPath = this.lockPath
 		this.lockPath = undefined
 		this.port = undefined
+		// Obsidian does not await onunload; HTTP socket shutdown may also stall indefinitely.
+		if (lockPath) rmSync(lockPath, { force: true })
+		if (server) await server.stop()
 	}
 }
