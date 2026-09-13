@@ -12,10 +12,6 @@
 		"test": "bun test",
 		"dev": "node esbuild.mjs --watch"
 	},
-	"dependencies": {
-		"valibot": "^1.4.0",
-		"ws": "^8.18.0"
-	},
 	"devDependencies": {
 		"@codemirror/view": "^6.0.0",
 		"@types/bun": "^1.3.0",
@@ -23,6 +19,8 @@
 		"@types/ws": "^8.5.0",
 		"esbuild": "^0.25.0",
 		"obsidian": "^1.7.0",
-		"typescript": "^5.5.0"
+		"typescript": "^5.5.0",
+		"valibot": "^1.4.0",
+		"ws": "^8.18.0"
 	}
 }

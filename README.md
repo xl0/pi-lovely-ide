@@ -107,7 +107,7 @@ guessed source positions. This works for ambient context and **Pi: Mention Selec
 **Pi: Mention Whole Note** omits the excerpt.
 
 Release preparation and directory submission are documented in the
-[Obsidian publishing guide](./ide-plugins/obsidian/README.md#publishing).
+[Obsidian release instructions](#obsidian).
 
 ### Privacy and external services
 
@@ -289,8 +289,44 @@ These use `vsce publish` and `ovsx publish`, respectively, and source the adapte
 git-ignored `.env` for `VSCE_PAT` / `OVSX_PAT`. The `vscode:prepublish` hook type-checks
 and builds the production bundle. There is currently no tag-triggered adapter publish.
 
-For Obsidian's assets, tags, and first directory submission, see its
-[publishing guide](./ide-plugins/obsidian/README.md#publishing).
+### Obsidian
+
+The repository-root [`manifest.json`](./manifest.json) is the canonical Obsidian
+manifest and version source. The adapter's private `package.json` is build-only.
+The installer and release workflow use the root manifest directly; do not maintain
+a second copy in the adapter.
+
+1. Update the root manifest's `version` for each release. It must be plain `x.y.z`,
+   with no `v` or adapter prefix. `minAppVersion` is conservatively set to 1.13.7,
+   the exercised desktop version; lower it only after testing older versions.
+2. Run `bun run check` from the repository root. Merge the release changes into the
+   default branch so Obsidian's directory sees the correct manifest.
+3. Push the matching tag, for example for the initial release:
+
+   ```sh
+   git tag -a 0.1.0 -m "Obsidian plugin 0.1.0"
+   git push origin 0.1.0
+   ```
+
+4. [Release Obsidian plugin](./.github/workflows/release-obsidian.yml) validates
+   the tag, installs dependencies with Bun, runs the checks/build, and creates a
+   **draft** GitHub release with `main.js` and `manifest.json` attached. Review the
+   release and publish it. No separate release secret is needed; it uses `GITHUB_TOKEN`.
+5. For the first listing, sign in at [community.obsidian.md](https://community.obsidian.md/),
+   link GitHub, and submit `https://github.com/xl0/pi-lovely-ide`. Address review
+   feedback before publication. Subsequent versions only need new GitHub releases.
+
+The first release and directory submission are still pending. The Pi npm package
+also needs an updated release: published `0.3.4` predates this integration. Until then,
+beta testers must load the Pi side from a checkout as described in [Obsidian setup](#obsidian-setup).
+Do not reuse published versions/tags. If the plugin gains `styles.css`, add it to
+the workflow's release assets as well as the local install.
+
+The build includes the project's MIT license and the bundled `ws` and Valibot license
+notices in `main.js`, since Obsidian installs release assets rather than the repository.
+
+References: [publishing guide](https://docs.obsidian.md/plugins/releasing/submit-plugin),
+[developer policies](https://docs.obsidian.md/community-directory/developer-policies).
 
 ## Related projects
 

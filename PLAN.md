@@ -46,7 +46,8 @@ context follows latest user activity; explicit mentions work from either app.
 - [x] Synchronous unload unadvertising and closed-port cleanup prevent stale Obsidian entries.
 - [x] Omit unknown context origins; ensure lock-removal failure cannot skip shutdown.
 - [x] Default Obsidian Mention Selection hotkey matches VS Code (Alt+Shift+L).
-- [x] Root Obsidian manifest, license-bearing bundle, draft-release workflow, and publishing/privacy docs.
+- [x] Root Obsidian manifest, license-bearing bundle, draft-release workflow,
+      root README publishing instructions, and user-facing privacy docs.
 - [x] Lovely Web/Config-style npm changelog and staged release script/workflow;
       adapter versions and publishing remain independent.
 - [ ] Configure npm trusted publishing (`publish.yml`, GitHub environment `npm`).

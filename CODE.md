@@ -35,6 +35,8 @@
   and the root Obsidian manifest. Adapter versions/publish paths remain independent.
 - npm uses `v`-prefixed tags; Obsidian uses bare version tags. VS Code/Open VSX
   publishing remains manual through the adapter's package scripts.
+- Maintainer release instructions for all components live in root `README.md`;
+  the Obsidian adapter README omits publishing procedures.
 
 ## Shared protocol module
 
@@ -333,6 +335,8 @@ and outgoing protocol summaries without raw selected text.
 
 `ide-plugins/obsidian` bundles `ws`, Valibot, and the shared protocol into CommonJS
 `main.js`; Obsidian and CodeMirror remain host-provided externals.
+Like VS Code, bundled libraries are declared as dev dependencies; installed
+plugins require no separate dependency installation.
 
 - Repository-root `manifest.json` is the canonical plugin metadata/version source.
   It declares desktop-only support and a conservative minimum of Obsidian 1.13.7.
