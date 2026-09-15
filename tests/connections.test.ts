@@ -96,9 +96,13 @@ test("distinct apps sharing a PID coexist; only latest activity supplies context
 	assert.equal(connections.active, undefined)
 	code.select("/test/code.ts")
 	await until(() => connections.active === code.ide)
+	const codeSnapshot = connections.selection?.snapshotCurrent()
+	assert.equal(codeSnapshot?.ide, "VS Code")
 	notes.select("/test/note.md")
 	await until(() => connections.active === notes.ide)
 	assert.equal(connections.selection?.snapshotCurrent()?.filePath, "/test/note.md")
+	assert.equal(connections.selection?.snapshotCurrent()?.ide, "Obsidian")
+	assert.equal(codeSnapshot?.ide, "VS Code")
 	connections.send({ jsonrpc: "2.0", method: "session_info_changed", params: { name: "renamed" } })
 	await until(() => [code, notes].every(peer => peer.messages.some(message => message.method === "session_info_changed")))
 	connections.disconnect(code.ide)
@@ -114,6 +118,17 @@ test("selection sent immediately after hello is retained through connection setu
 	await connections.start()
 	await until(() => connections.active === code.ide)
 	assert.equal(connections.selection?.snapshotCurrent()?.filePath, "/test/code.ts")
+})
+
+test("an unnamed endpoint does not fabricate selection provenance", async () => {
+	const ide = await endpoint("unnamed", "/test/note.md")
+	delete ide.ide.lock.ide
+	const connections = pool(async () => [ide.ide])
+	await connections.start()
+	await until(() => connections.active === ide.ide)
+	const snapshot = connections.selection?.snapshotCurrent()
+	assert(snapshot)
+	assert.equal(Object.hasOwn(snapshot, "ide"), false)
 })
 
 test("ambiguous apps need a choice; late discovery respects manual disconnects", async () => {

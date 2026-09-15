@@ -24,6 +24,8 @@ export type SelectionRangeSnapshot = v.InferOutput<typeof SelectionRangeSnapshot
 
 export const SelectionSnapshotSchema = v.looseObject({
 	filePath: v.string(),
+	// Captured from the originating connection, not the current ambient context owner.
+	ide: v.optional(v.string()),
 	cell: v.optional(CellAddressSchema),
 	range: v.optional(SelectionRangeSnapshotSchema),
 	text: v.optional(TextExcerptSchema)
@@ -72,12 +74,14 @@ function snapshotText(span: IdeSpan): IdeTextExcerpt | undefined {
 	return span.text && span.text.totalCharacters > 0 ? span.text : undefined
 }
 
-export function selectionSnapshotFromEvent(selection: IdeLocationEventParams): SelectionSnapshot | undefined {
+export function selectionSnapshotFromEvent(selection: IdeLocationEventParams, ide?: string): SelectionSnapshot | undefined {
 	if (!selection.file) return undefined
+	ide = ide?.trim() || undefined
 	const span = selection.spans[0]
 	if (!span) {
 		return {
 			filePath: selection.file,
+			...(ide !== undefined ? { ide } : {}),
 			...(selection.text?.totalCharacters ? { text: selection.text } : {})
 		}
 	}
@@ -88,6 +92,7 @@ export function selectionSnapshotFromEvent(selection: IdeLocationEventParams): S
 	const text = snapshotText(span)
 	return {
 		filePath: selection.file,
+		...(ide !== undefined ? { ide } : {}),
 		...(cell !== undefined ? { cell } : {}),
 		...(range !== undefined ? { range } : {}),
 		...(text !== undefined ? { text } : {})
@@ -166,6 +171,10 @@ export function formatSnapshotContext(
 ): string {
 	const file = displayPath(snapshot.filePath)
 	let attributes = `file="${file}"`
+	if (snapshot.ide !== undefined) {
+		const ide = snapshot.ide.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+		attributes += ` ide="${ide}"`
+	}
 	if (snapshot.cell?.id !== undefined) attributes += ` cellId="${snapshot.cell.id}"`
 	if (snapshot.cell?.index !== undefined) attributes += ` cellIndex="${snapshot.cell.index}"`
 	attributes += extraAttributes
@@ -196,10 +205,13 @@ export function formatSelectionContext(
 export class SelectionState {
 	#current: SelectionSnapshot | null = null
 
-	constructor(private readonly displayPath: (path: string) => string) {}
+	constructor(
+		private readonly displayPath: (path: string) => string,
+		private readonly ide?: string
+	) {}
 
 	setCurrent(selection: IdeLocationEventParams): void {
-		this.#current = selectionSnapshotFromEvent(selection) ?? null
+		this.#current = selectionSnapshotFromEvent(selection, this.ide) ?? null
 	}
 
 	clearCurrent(): void {

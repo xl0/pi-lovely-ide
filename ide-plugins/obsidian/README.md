@@ -2,12 +2,18 @@
 
 Obsidian desktop plugin for Pi IDE Protocol v1.
 
+Requires Obsidian desktop 1.13.7+ and Pi with this IDE integration loaded. See
+[setup and privacy disclosures](../../README.md#obsidian-setup) before using it.
+
 - Starts authenticated localhost WebSocket server.
 - Advertises vault root as Pi workspace in `~/.pi/ide/<port>.lock`.
+- Removes its lock immediately on unload; startup clears closed-port records left by
+  renderer reloads under the same PID, while preserving live endpoints.
 - Publishes active Markdown note selection/cursor to connected Pi sessions while Obsidian window is focused.
 - Commands:
   - `Pi: Mention Selection`
   - `Pi: Mention Whole Note`
+- **Alt+Shift+L** defaults to Mention Selection; customize it in Settings → Hotkeys.
 
 Reading view sends selected rendered text with the note reference, without source line
 numbers. Ambient context and `Pi: Mention Selection` preserve that bounded excerpt;
@@ -49,7 +55,7 @@ obsidian vault="vault-name-or-id" plugin:enable id=pi-lovely-ide filter=communit
 obsidian vault="vault-name-or-id" plugin:reload id=pi-lovely-ide
 ```
 
-`vault=` must precede the command. CLI activation requires Obsidian 1.12.7+,
+`vault=` must precede the command. CLI activation requires an Obsidian installer 1.12.7+,
 Settings → General → Command line interface enabled, and Community plugins allowed.
 CLI errors fail the install command; the installer never edits `community-plugins.json`
 directly or disables Restricted mode.

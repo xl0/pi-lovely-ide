@@ -18,13 +18,15 @@
 		"extensions/",
 		"packages/",
 		"README.md",
+		"CHANGELOG.md",
 		"LICENSE"
 	],
 	"scripts": {
 		"test": "bun build ./tests/connections.test.ts --target=node --format=cjs --external undici --outfile=.pi/tests/connections.cjs && node --test .pi/tests/connections.cjs",
 		"typecheck": "tsgo --noEmit && bun run --cwd ide-plugins/vscode typecheck && bun run --cwd ide-plugins/obsidian typecheck",
 		"check": "bun run typecheck && bun run test && bun run --cwd ide-plugins/obsidian test && bun run --cwd ide-plugins/obsidian build && bun run biome:check",
-		"release": "npm publish --access public",
+		"prepublishOnly": "bun run check",
+		"release": "bun run scripts/release.ts",
 		"lint": "biome lint .",
 		"format": "biome format --write .",
 		"format:check": "biome format .",
@@ -34,6 +36,7 @@
 		"@biomejs/biome": "^2.4.16",
 		"@earendil-works/pi-coding-agent": "^0.80.10",
 		"@types/node": "^25.9.2",
+		"bun-types": "^1.3.13",
 		"@typescript/native-preview": "^7.0.0-dev.20260606.1",
 		"typescript": "^6.0.3"
 	},

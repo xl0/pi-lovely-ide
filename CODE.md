@@ -20,6 +20,24 @@
   typed `session_info_changed` support.
 - Scoped settings use `@xl0/pi-lovely-config`.
 
+## Releases
+
+- Root `CHANGELOG.md` follows the Lovely Web/Config format: `[Unreleased]`, then
+  dated version sections with Added/Changed/Fixed/Removed entries. It covers npm.
+- `scripts/release.ts` manages only that changelog and root `package.json`.
+  From master it verifies, rolls/bump versions, asks for approval, then commits only
+  those files and tags `vX.Y.Z`. `--no-push` stops locally; otherwise it pushes,
+  waits for npm staging, and prompts for 2FA approval. Unrelated staged work is excluded.
+- `.github/workflows/publish.yml` checks tag/version, runs verification, stages the
+  npm package with OIDC provenance, and creates a changelog-based GitHub Release.
+  It needs the GitHub `npm` environment and matching npm trusted-publisher configuration.
+- `prepublishOnly` runs root checks; the npm file allowlist excludes adapter code
+  and the root Obsidian manifest. Adapter versions/publish paths remain independent.
+- npm uses `v`-prefixed tags; Obsidian uses bare version tags. VS Code/Open VSX
+  publishing remains manual through the adapter's package scripts.
+- Maintainer release instructions for all components live in root `README.md`;
+  the Obsidian adapter README omits publishing procedures.
+
 ## Shared protocol module
 
 `packages/protocol/src/index.ts` exports Pi IDE Protocol v1 constants, schemas, types, and parsers.
@@ -111,6 +129,12 @@ Connection behavior:
 ## Selection, mentions, and model context
 
 Selection Context is enabled by default.
+
+Selection/mention snapshots capture the originating connection's IDE name in `ide`.
+Context blocks include it as an escaped `ide="..."` attribute; plain references do not.
+Attribution is captured on receipt and survives focus changes, disconnects, and history
+serialization. Missing or blank origins omit the field; the UI's generic `IDE`
+label is never used as fabricated provenance.
 
 IDE wire ranges are zero-based inclusive display/reference ranges. Pi displays and injects
 them as 1-based line/character positions. Notebook ranges are cell-relative when `cell`
@@ -311,8 +335,12 @@ and outgoing protocol summaries without raw selected text.
 
 `ide-plugins/obsidian` bundles `ws`, Valibot, and the shared protocol into CommonJS
 `main.js`; Obsidian and CodeMirror remain host-provided externals.
+Like VS Code, bundled libraries are declared as dev dependencies; installed
+plugins require no separate dependency installation.
 
-- `manifest.json` marks the plugin desktop-only. Vault root is its advertised workspace.
+- Repository-root `manifest.json` is the canonical plugin metadata/version source.
+  It declares desktop-only support and a conservative minimum of Obsidian 1.13.7.
+  Vault root is its advertised workspace; the adapter package is private/build-only.
 - Source/live-preview selections map Obsidian's half-open positions to inclusive spans.
   Excerpts use bounded head/tail chunks. Reading view sends the note reference plus
   selected rendered text, never invented source positions. DOM selections must be
@@ -322,19 +350,31 @@ and outgoing protocol summaries without raw selected text.
 - Focus-aware editor hooks publish note/cursor/selection; active non-Markdown views clear it.
 - `Pi: Mention Selection` and `Pi: Mention Whole Note` target a connected Pi session,
   with a chooser when several subscribe. Captured targets cannot send after plugin unload.
+  Mention Selection defaults to Alt+Shift+L; users can override it in Obsidian's Hotkeys.
 - Loopback authentication, hello/session metadata, subscriptions, and private atomic lockfiles
   use Pi IDE v1, with an optional file-level excerpt field. No diagnostics or notebook execution.
-- Unload fences in-flight startup, terminates sockets, and removes the lockfile.
+- Unload fences in-flight startup and removes the lockfile synchronously before
+  awaiting socket shutdown. Shutdown still runs if lock removal fails; unload errors
+  are logged. Obsidian does not await unload hooks.
+- Startup also reaps its own PID's Obsidian lockfiles whose ports refuse connections, even if the
+  renderer PID survived a reload. Live ports and uncertain failures are preserved;
+  filename/port agreement and unchanged contents guard deletion.
 - `dev-install-obsidian-plugin.sh <absolute-vault-path> [vault-name-or-id]` builds and copies
   artifacts into `.obsidian/plugins/pi-lovely-ide`. An explicit second argument queries
   enabled plugins through the CLI, enabling a disabled plugin or reloading an enabled one.
   Without it, activation is manual. Notes and vault settings files are never edited directly;
   Restricted mode is not disabled. CLI failures surface explicitly.
+- The installer uses the root manifest and built `ide-plugins/obsidian/main.js`.
+  The bundle embeds MIT notices for this project, `ws`, and Valibot.
+- `.github/workflows/release-obsidian.yml` handles plain `x.y.z` tag pushes, rejects
+  tag/manifest mismatches, runs root checks on Node 24/Bun, and creates a draft release
+  with the two installation assets. Publishing the draft and first Community directory
+  submission are manual. Pi's npm release is separate; published `0.3.4` lacks these changes.
 
 Root `bun run test` bundles connection tests with Bun and runs them under Node, matching
 Pi's runtime; Undici handshakes stalled when those tests ran directly in Bun.
 Network tests cover simultaneous apps, initial selection, late discovery, disconnect/recovery,
-and session replacement. Obsidian tests cover source-range conversion and file-level
+and session replacement. Obsidian tests cover unload/stale-lock cleanup, source-range conversion, and file-level
 excerpt validation/rendering through both selection and mention context.
 The built Obsidian bundle also passed a host-stub/real-WebSocket smoke test for auth,
 hello/selection, focus, mentions, reading view, and unload/lock cleanup.

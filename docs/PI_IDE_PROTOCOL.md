@@ -50,14 +50,23 @@ groups endpoints by advertised `ide` name: one matching endpoint per app auto-co
 while multiple matching windows of the same app need an explicit choice. PID alone is
 not endpoint identity; several Obsidian vaults can share a process.
 
-Servers should remove their lockfile on shutdown/deactivate when possible. Servers should also opportunistically remove stale `pi-ide` lockfiles before writing their own. A lockfile is safe to delete only when all are true:
+Servers should remove their lockfile on shutdown/deactivate, before awaiting socket
+shutdown. Servers should also opportunistically remove stale `pi-ide` lockfiles before
+writing their own. Dead-process cleanup requires all of:
 
 - It parses as `protocol: "pi-ide"`.
 - It has a `pid`.
 - That PID is known to be in the same OS/PID namespace as the process doing cleanup.
 - That PID is dead.
 
-If PID namespace is unclear, or `pid` is absent, leave the lockfile. Clients should ignore dead-PID lockfiles using the same-namespace rule. Port probing and mtime TTL cleanup are not part of v1.
+If PID namespace is unclear, or `pid` is absent, leave the lockfile. Clients should ignore
+dead-PID lockfiles using the same-namespace rule.
+
+Obsidian additionally probes its own-process advertisements at startup: renderer reloads
+can preserve the PID but close the listener. Only a loopback `ECONNREFUSED` confirms
+staleness; timeouts and other errors do not. Before deletion, filename/port must agree
+and lock contents must remain unchanged. Live endpoints sharing a PID remain distinct.
+Mtime TTL cleanup is not defined by v1.
 
 ## Transport
 

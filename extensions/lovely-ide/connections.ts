@@ -48,8 +48,8 @@ export class IdeConnections {
 		return this.activeSource ? this.entries.get(this.activeSource)?.selection : undefined
 	}
 
-	has(source: IdeConnection): boolean {
-		return this.entries.has(source)
+	get(source: IdeConnection): DiscoveredIde | undefined {
+		return this.entries.get(source)?.ide
 	}
 
 	select(source: IdeConnection, event: IdeLocationEventParams): void {
@@ -150,7 +150,7 @@ export class IdeConnections {
 				this.scheduleReconnect()
 			}
 		})
-		const entry = { ide, selection: new SelectionState(this.options.displayPath), ready: false }
+		const entry = { ide, selection: new SelectionState(this.options.displayPath, ide.lock.ide), ready: false }
 		this.entries.set(connection, entry)
 		try {
 			await connection.connect()
